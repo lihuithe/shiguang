@@ -611,7 +611,7 @@ private struct TimelineRuler: View {
 
 // MARK: - 放大查看
 
-/// 在時間軸上輕點某一格後放大查看：左右翻看、上滑刪除（加入時間軸的待刪除）。
+/// 在時間軸上輕點某一格後放大查看：左右翻看，按刪除按鈕刪除（加入時間軸的待刪除）。
 private struct TimelinePreview: View {
     let startID: String
     let onDelete: (MediaItem) -> Void
@@ -622,6 +622,7 @@ private struct TimelinePreview: View {
     @State private var position: String?
     @State private var favorites: Set<String>
     @State private var glow = false
+    @State private var deleteTrigger = 0
 
     init(items: [MediaItem], startID: String, onDelete: @escaping (MediaItem) -> Void) {
         self.startID = startID
@@ -662,15 +663,17 @@ private struct TimelinePreview: View {
                     items: items,
                     position: $position,
                     showsEndPage: false,
-                    onDelete: delete
+                    onDelete: delete,
+                    deleteTrigger: deleteTrigger
                 ) {
                     EmptyView()
                 }
 
-                Label("上滑删除", systemImage: "arrow.up")
-                    .font(.footnote)
-                    .foregroundStyle(.white.opacity(0.5))
-                    .padding(.bottom, 16)
+                CircleIconButton(systemName: "trash", size: 52) {
+                    guard current != nil else { return }
+                    deleteTrigger += 1
+                }
+                .padding(.bottom, 16)
             }
             IslandGlow(isOn: glow)
         }

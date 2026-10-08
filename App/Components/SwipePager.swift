@@ -6,7 +6,7 @@ let pagerEndID = "__group_end__"
 
 /// 左右翻頁的照片瀏覽器：
 /// - 翻頁交給原生分頁 ScrollView（流暢、可快速輕掃，相鄰頁預先載入）；
-/// - 上滑刪除疊加在目前這張上：手指往上拖時卡片跟著縮小，鬆手後飛向動態島；
+/// - 刪除：由外部按鈕觸發（deleteTrigger 遞增），卡片縮小飛向動態島；也可開啟上滑刪除；
 /// - 可選的結尾頁，滑到結尾表示看完一組。
 struct SwipePager<EndPage: View>: View {
     let items: [MediaItem]
@@ -22,10 +22,15 @@ struct SwipePager<EndPage: View>: View {
     var onPinchIn: ((MediaItem) -> Void)? = nil
     /// 讓呼叫方知道目前卡片在螢幕上的位置（「回到那天」的縮放過場用）
     var onCurrentFrame: ((CGRect) -> Void)? = nil
+    /// 是否允許上滑刪除；照片與視頻統一改為按刪除按鈕，預設關閉以免誤刪
+    var allowsSwipeToDelete = false
+    /// 每遞增一次，就刪除目前這張（播放飛向動態島的動畫後呼叫 onDelete）
+    var deleteTrigger = 0
     @ViewBuilder var endPage: () -> EndPage
 
     @Environment(AppModel.self) private var model
     @State private var dragY: CGFloat = 0
+    @State private var pagerMidY: CGFloat = 0
     @State private var flyingID: String?
     @State private var pinchScale: CGFloat = 1
 
@@ -55,8 +60,13 @@ struct SwipePager<EndPage: View>: View {
             .onChange(of: position, initial: true) {
                 reportFrame(size: size, pagerFrame: frame)
             }
-            .onChange(of: frame) {
+            .onChange(of: frame, initial: true) {
+                pagerMidY = frame.midY
                 reportFrame(size: size, pagerFrame: frame)
+            }
+            .onChange(of: deleteTrigger) {
+                guard flyingID == nil, let item = items.first(where: { $0.id == position }) else { return }
+                flyAway(item, cardCenterY: pagerMidY)
             }
         }
     }
@@ -105,7 +115,7 @@ struct SwipePager<EndPage: View>: View {
     // MARK: - 上滑刪除
 
     private func deleteGesture(_ item: MediaItem, size: CGSize, pagerFrame: CGRect) -> UpwardPanGesture {
-        UpwardPanGesture { translationY in
+        UpwardPanGesture(isEnabled: allowsSwipeToDelete) { translationY in
             guard flyingID == nil, item.id == position else { return }
             dragY = translationY < 0 ? translationY : translationY * 0.15
         } onEnded: { translationY, predictedEndY in

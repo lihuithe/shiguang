@@ -6,6 +6,7 @@ import UIKit
 /// 掛在原生分頁 ScrollView 的頁面上時，左右滑動完全交給 ScrollView，
 /// 不會像 SwiftUI 的 DragGesture 那樣和滾動搶觸控，翻頁不會有延遲感。
 struct UpwardPanGesture: UIGestureRecognizerRepresentable {
+    var isEnabled = true
     /// 往上拖的位移（負值）
     var onChanged: (CGFloat) -> Void
     /// 結束時的位移與預測的最終位移
@@ -16,6 +17,10 @@ struct UpwardPanGesture: UIGestureRecognizerRepresentable {
         recognizer.maximumNumberOfTouches = 1
         recognizer.delegate = context.coordinator
         return recognizer
+    }
+
+    func updateUIGestureRecognizer(_ recognizer: UIPanGestureRecognizer, context: Context) {
+        recognizer.isEnabled = isEnabled
     }
 
     func handleUIGestureRecognizerAction(_ recognizer: UIPanGestureRecognizer, context: Context) {

@@ -3,17 +3,17 @@ import SwiftUI
 
 /// 照片全螢幕瀏覽（對照原版）：
 /// - 頂部：返回、組內進度、分享；
-/// - 中間：圓角照片卡片，原生分頁左右滑，上滑刪除（照片飛進動態島），雙指捏合「回到那天」；
-/// - 底部：收藏、「時間 · 地點 ⓘ」、撤銷。
+/// - 中間：圓角照片卡片，原生分頁左右滑，雙指捏合「回到那天」；
+/// - 底部：收藏、「時間 · 地點 ⓘ」、刪除（照片飛進動態島，與視頻一致）、撤銷。
 struct PhotoReviewView: View {
     @Bindable var review: ReviewModel
 
     @Environment(AppModel.self) private var model
-    @AppStorage("hint.deleteSwipe") private var hasSeenDeleteHint = false
     @AppStorage("hint.pageSwipe") private var hasSeenPageHint = false
     @AppStorage("hint.dayTutorial") private var hasSeenDayTutorial = false
 
     @State private var position: String?
+    @State private var deleteTrigger = 0
     @State private var glow = false
     @State private var heartBurst = false
     @State private var background = Color(white: 0.12)
@@ -40,8 +40,7 @@ struct PhotoReviewView: View {
 
             VStack(spacing: 0) {
                 topBar
-                deleteHint
-                    .frame(height: 36)
+                    .padding(.bottom, 12)
                 pager
                 bottomBar
             }
@@ -140,22 +139,6 @@ struct PhotoReviewView: View {
         .padding(.top, 6)
     }
 
-    @ViewBuilder
-    private var deleteHint: some View {
-        if !hasSeenDeleteHint {
-            VStack(spacing: 0) {
-                Image(systemName: "chevron.compact.up")
-                    .font(.system(size: 18, weight: .semibold))
-                Text("上滑删除")
-                    .font(.footnote.weight(.medium))
-            }
-            .foregroundStyle(.white.opacity(0.85))
-            .phaseAnimator([CGFloat(0), CGFloat(-4)]) { view, offset in
-                view.offset(y: offset)
-            } animation: { _ in .easeInOut(duration: 0.8) }
-        }
-    }
-
     // MARK: - 翻頁
 
     private var pager: some View {
@@ -164,7 +147,6 @@ struct PhotoReviewView: View {
             position: $position,
             isActive: timelineAnchor == nil && !review.isPresentingPending,
             onDelete: { item in
-                hasSeenDeleteHint = true
                 flashGlow()
                 if item.id == current?.id {
                     review.deleteCurrent()
@@ -183,7 +165,8 @@ struct PhotoReviewView: View {
             },
             onCurrentFrame: { frame in
                 currentCardFrame = frame
-            }
+            },
+            deleteTrigger: deleteTrigger
         ) {
             VStack(spacing: 10) {
                 Image(systemName: "checkmark.circle")
@@ -217,56 +200,58 @@ struct PhotoReviewView: View {
     // MARK: - 底部
 
     private var bottomBar: some View {
-        ZStack {
-            HStack {
-                let isFavorite = current.map { review.session.isFavorite($0.id) } ?? false
-                CircleIconButton(
-                    systemName: isFavorite ? "heart.fill" : "heart",
-                    size: 48,
-                    tint: isFavorite ? .pink : .white
-                ) {
-                    if let current { review.toggleFavorite(current) }
-                }
-                .disabled(current == nil)
-
-                Spacer()
-
-                CircleIconButton(systemName: "arrow.uturn.backward", size: 48) {
-                    hideUndoHint()
-                    review.undo()
-                }
-                .disabled(!review.session.canUndo)
-                .opacity(review.session.canUndo ? 1 : 0.35)
-                .overlay(alignment: .topTrailing) {
-                    if showUndoHint {
-                        UndoHintPill()
-                            .fixedSize()
-                            .offset(y: -48)
-                            .transition(.scale(scale: 0.8, anchor: .bottomTrailing).combined(with: .opacity))
-                    }
-                }
+        HStack(spacing: 12) {
+            let isFavorite = current.map { review.session.isFavorite($0.id) } ?? false
+            CircleIconButton(
+                systemName: isFavorite ? "heart.fill" : "heart",
+                size: 48,
+                tint: isFavorite ? .pink : .white
+            ) {
+                if let current { review.toggleFavorite(current) }
             }
+            .disabled(current == nil)
 
-            if let current {
-                Button {
-                    infoItem = current
-                } label: {
-                    HStack(spacing: 10) {
+            Button {
+                if let current { infoItem = current }
+            } label: {
+                HStack(spacing: 8) {
+                    if let current {
                         DatePlaceText(item: current)
-                        Image(systemName: "info.circle.fill")
-                            .font(.body)
-                            .foregroundStyle(.white.opacity(0.7))
                     }
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 7)
-                    .frame(minHeight: 48)
-                    .glassBackground(Capsule())
+                    Image(systemName: "info.circle.fill")
+                        .font(.body)
+                        .foregroundStyle(.white.opacity(0.7))
                 }
-                .buttonStyle(.plain)
-                .frame(maxWidth: 220)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 7)
+                .frame(maxWidth: .infinity, minHeight: 48)
+                .glassBackground(Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(current == nil)
+
+            CircleIconButton(systemName: "trash", size: 48) {
+                guard current != nil else { return }
+                deleteTrigger += 1
+            }
+            .disabled(current == nil)
+
+            CircleIconButton(systemName: "arrow.uturn.backward", size: 48) {
+                hideUndoHint()
+                review.undo()
+            }
+            .disabled(!review.session.canUndo)
+            .opacity(review.session.canUndo ? 1 : 0.35)
+            .overlay(alignment: .topTrailing) {
+                if showUndoHint {
+                    UndoHintPill()
+                        .fixedSize()
+                        .offset(y: -48)
+                        .transition(.scale(scale: 0.8, anchor: .bottomTrailing).combined(with: .opacity))
+                }
             }
         }
-        .padding(.horizontal, 20)
+        .padding(.horizontal, 16)
         .padding(.top, 8)
         .padding(.bottom, 12)
     }

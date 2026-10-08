@@ -238,7 +238,7 @@ struct GestureHelpView: View {
             Section("照片") {
                 HelpRow(icon: "hand.tap", text: "首页轻触卡片：开始回顾一组")
                 HelpRow(icon: "arrow.left.and.right", text: "左右滑动：切换照片")
-                HelpRow(icon: "arrow.up", text: "上滑：删除，看完一组后统一确认")
+                HelpRow(icon: "trash", text: "删除按钮：删除，看完一组后统一确认")
                 HelpRow(icon: "arrow.uturn.backward", text: "撤销按钮：撤回上一步操作")
                 HelpRow(icon: "heart", text: "收藏按钮或双击：收藏（同步到系统相册的「个人收藏」）")
                 HelpRow(icon: "arrow.down.right.and.arrow.up.left", text: "双指捏合：回到那天")

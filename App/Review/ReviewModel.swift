@@ -2,7 +2,7 @@ import Observation
 import ShiGuangCore
 import SwiftUI
 
-/// 照片分頁與視頻分頁共用的瀏覽狀態機：抽一組 → 翻看 / 上滑刪除 → 看完確認刪除 → 下一組。
+/// 照片分頁與視頻分頁共用的瀏覽狀態機：抽一組 → 翻看 / 刪除 → 看完確認刪除 → 下一組。
 @MainActor
 @Observable
 final class ReviewModel {
@@ -22,7 +22,7 @@ final class ReviewModel {
     /// 看完一組（或中途返回）時，顯示「有待刪除的照片」
     var isPresentingPending = false
     private(set) var isDeleting = false
-    /// 每次上滑刪除遞增，畫面據此顯示「點擊撤銷」提示
+    /// 每次刪除遞增，畫面據此顯示「點擊撤銷」提示
     private(set) var deleteCount = 0
     /// 本次瀏覽看過的數量，用來決定何時顯示「回到那天」教學
     private(set) var viewedThisSession = 0

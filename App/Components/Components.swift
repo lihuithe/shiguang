@@ -88,7 +88,7 @@ extension View {
     }
 }
 
-/// 上滑刪除時，動態島位置閃一下紅光，像照片被吸進去。
+/// 刪除時，動態島位置閃一下紅光，像照片被吸進去。
 struct IslandGlow: View {
     let isOn: Bool
 

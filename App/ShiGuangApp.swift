@@ -126,7 +126,7 @@ struct PermissionView: View {
             }
             VStack(alignment: .leading, spacing: 12) {
                 PermissionPoint(icon: "shuffle", text: "每次随机抽一组，像开盲盒")
-                PermissionPoint(icon: "hand.draw", text: "上滑删除，下滑收藏，轻松整理")
+                PermissionPoint(icon: "hand.draw", text: "左右滑动翻看，点删除顺手清理")
                 PermissionPoint(icon: "lock.shield", text: "不需要登录，不上传，不收集任何数据")
             }
             .padding(.top, 8)
