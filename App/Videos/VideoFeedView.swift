@@ -283,7 +283,7 @@ struct VideoFeedView: View {
                 actionColumn(for: item, height: size.height)
             }
             .padding(.horizontal, 14)
-            .padding(.bottom, 14)
+            .padding(.bottom, 34)  // 讓出底部 30pt 給可拖動的進度條
         }
     }
 
