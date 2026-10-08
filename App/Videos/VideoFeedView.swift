@@ -41,22 +41,22 @@ struct VideoFeedView: View {
                 feed
             }
 
-            // ScrollView 會延伸到 Tab 列後面，下一支剛好排在那裡；
-            // 在 Tab 列後方墊一塊純黑底（抖音式），半透明的玻璃 Tab 列就不會透出下一支。
-            VStack(spacing: 0) {
-                Spacer(minLength: 0)
-                Color.black
-                    .frame(height: 0)
-                    .ignoresSafeArea(edges: .bottom)
-            }
-            .allowsHitTesting(false)
-
             if needsSoundPrompt {
                 soundPrompt
                     .transition(.opacity.combined(with: .scale(scale: 0.95)))
             }
 
             IslandGlow(isOn: glow)
+        }
+        .overlay(alignment: .bottom) {
+            // 保險：Tab 列後方墊一塊純黑底（抖音式），高度用實際量到的底部安全區
+            GeometryReader { proxy in
+                Color.black
+                    .frame(height: proxy.safeAreaInsets.bottom)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            }
+            .ignoresSafeArea(edges: .bottom)
+            .allowsHitTesting(false)
         }
         .preferredColorScheme(.dark)
         .onAppear {
@@ -133,6 +133,9 @@ struct VideoFeedView: View {
         .scrollDisabled(needsSoundPrompt || flyingID != nil)
         // 頂部延伸到狀態列底下，底部停在 Tab 列上方（抖音式）
         .ignoresSafeArea(edges: .top)
+        // SwiftUI 的 ScrollView 會把內容畫到 Tab 列後面（只把 Tab 列當成內容邊距），
+        // 下一支剛好排在那裡，會從半透明的玻璃 Tab 列透出來。按版面範圍裁切，Tab 列後面不再繪製任何內容。
+        .clipShape(Rectangle())
     }
 
     /// 抖音式比例適配：影片比例接近畫面時鋪滿（少量裁切），否則完整顯示並置中
