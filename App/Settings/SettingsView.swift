@@ -70,8 +70,8 @@ struct SettingsView: View {
                     Text("\(model.settings.groupSize) 张").foregroundStyle(.secondary)
                 }
             }
-            Picker("回顾分类", selection: model.binding(\.category)) {
-                ForEach(MediaCategory.allCases) { category in
+            Picker("照片回顾分类", selection: model.binding(\.category)) {
+                ForEach(MediaCategory.photoTabCases) { category in
                     Label(category.title, systemImage: category.systemImage).tag(category)
                 }
             }
@@ -100,13 +100,11 @@ struct SettingsView: View {
             Toggle("实况照片静音", isOn: model.binding(\.livePhotoMuted))
             Toggle("视频自动播放", isOn: model.binding(\.videoAutoplay))
             Toggle("视频默认静音", isOn: model.binding(\.videoMuted))
-            Toggle("显示拍摄日期", isOn: model.binding(\.showDate))
-            if model.settings.showDate {
-                Picker("日期格式", selection: model.binding(\.dateStyle)) {
-                    ForEach(DateDisplayStyle.allCases) { style in
-                        Text("\(style.title)（\(DateDisplay.format(Date(timeIntervalSince1970: 1_615_000_000), style: style, calendar: model.calendar))）")
-                            .tag(style)
-                    }
+            Toggle("播放视频前提示声音", isOn: model.binding(\.videoSoundPrompt))
+            Picker("日期格式", selection: model.binding(\.dateStyle)) {
+                ForEach(DateDisplayStyle.allCases) { style in
+                    Text("\(style.title)（\(DateDisplay.format(Date(timeIntervalSince1970: 1_615_000_000), style: style, calendar: model.calendar))）")
+                        .tag(style)
                 }
             }
         } header: {
@@ -237,18 +235,20 @@ struct SettingsView: View {
 struct GestureHelpView: View {
     var body: some View {
         List {
-            Section("首页") {
-                HelpRow(icon: "arrow.up", text: "上滑：标记删除，看完一组后统一确认")
-                HelpRow(icon: "arrow.down", text: "下滑：收藏（同步到系统相册的「个人收藏」）并看下一张")
-                HelpRow(icon: "arrow.left", text: "左滑：保留，看下一张")
-                HelpRow(icon: "arrow.right", text: "右滑：回到上一张")
-                HelpRow(icon: "hand.tap", text: "双击：收藏 / 取消收藏")
-                HelpRow(icon: "arrow.down.right.and.arrow.up.left", text: "双指捏合：回到那天")
+            Section("照片") {
+                HelpRow(icon: "hand.tap", text: "首页轻触卡片：开始回顾一组")
+                HelpRow(icon: "arrow.left.and.right", text: "左右滑动：切换照片")
+                HelpRow(icon: "arrow.up", text: "上滑：删除，看完一组后统一确认")
                 HelpRow(icon: "arrow.uturn.backward", text: "撤销按钮：撤回上一步操作")
+                HelpRow(icon: "heart", text: "收藏按钮或双击：收藏（同步到系统相册的「个人收藏」）")
+                HelpRow(icon: "arrow.down.right.and.arrow.up.left", text: "双指捏合：回到那天")
+                HelpRow(icon: "info.circle", text: "点底部的时间地点：查看详细信息")
             }
             Section("视频与实况") {
+                HelpRow(icon: "arrow.up.and.down", text: "上下滑动：切换视频")
+                HelpRow(icon: "trash", text: "右侧垃圾桶：删除，看完一组后统一确认")
                 HelpRow(icon: "hand.point.up.left", text: "长按视频：2 倍速播放，松手恢复")
-                HelpRow(icon: "livephoto", text: "实况照片会自动播放，可在设置中关闭")
+                HelpRow(icon: "livephoto", text: "实况照片会自动播放，可在卡片左上角或设置中关闭")
             }
             Section("回到那天") {
                 HelpRow(icon: "calendar", text: "查看这张照片拍摄当天的所有照片、视频和截图")

@@ -13,6 +13,9 @@ public enum MediaCategory: String, CaseIterable, Codable, Sendable, Identifiable
 
     public var id: String { rawValue }
 
+    /// 照片分頁左上角下拉選單中的分類
+    public static let photoTabCases: [MediaCategory] = [.photos, .screenshots, .livePhotos, .animated, .selfies]
+
     public var title: String {
         switch self {
         case .all: return "全部"

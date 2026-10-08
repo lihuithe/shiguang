@@ -186,17 +186,23 @@ final class PhotoLibraryService: NSObject, PHPhotoLibraryChangeObserver {
     }
 
     /// 估算檔案大小（含實況照片的影片部分），用於統計釋放的空間。
-    func estimatedFileSize(ids: [String]) -> Int64 {
+    func estimatedFileSizes(ids: [String]) -> [String: Int64] {
         let assets = PHAsset.fetchAssets(withLocalIdentifiers: ids, options: nil)
-        var total: Int64 = 0
+        var sizes: [String: Int64] = [:]
         assets.enumerateObjects { asset, _, _ in
-            for resource in PHAssetResource.assetResources(for: asset) {
-                if let size = resource.value(forKey: "fileSize") as? NSNumber {
-                    total += size.int64Value
-                }
-            }
+            sizes[asset.localIdentifier] = Self.fileSize(of: asset)
         }
-        return total
+        return sizes
+    }
+
+    static func fileSize(of asset: PHAsset) -> Int64 {
+        PHAssetResource.assetResources(for: asset).reduce(Int64(0)) { total, resource in
+            total + ((resource.value(forKey: "fileSize") as? NSNumber)?.int64Value ?? 0)
+        }
+    }
+
+    static func originalFilename(of asset: PHAsset) -> String? {
+        PHAssetResource.assetResources(for: asset).first?.originalFilename
     }
 
     @MainActor

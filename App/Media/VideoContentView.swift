@@ -7,6 +7,12 @@ import SwiftUI
 struct VideoContentView: View {
     let item: MediaItem
     let isActive: Bool
+    /// 顯示時長標記與靜音按鈕；嵌在信息流時由外層提供控制元件
+    var showsChrome = true
+    /// 由外部控制是否靜音；nil 表示用設定值，並允許使用者用按鈕切換
+    var mutedOverride: Bool? = nil
+    /// 進度條距離底部的距離
+    var progressInset: CGFloat = 104
 
     @Environment(AppModel.self) private var model
     @State private var player = AVPlayer()
@@ -28,22 +34,24 @@ struct VideoContentView: View {
                 .opacity(isReady ? 1 : 0)
 
             VStack {
-                HStack {
-                    MediaBadge(title: DurationText.format(item.duration), systemImage: "video.fill")
-                    Spacer()
-                    Button {
-                        isMuted.toggle()
-                        player.isMuted = isMuted
-                    } label: {
-                        Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
-                            .font(.footnote)
-                            .foregroundStyle(.white)
-                            .padding(8)
-                            .background(.ultraThinMaterial, in: Circle())
+                if showsChrome {
+                    HStack {
+                        MediaBadge(title: DurationText.format(item.duration), systemImage: "video.fill")
+                        Spacer()
+                        Button {
+                            isMuted.toggle()
+                            player.isMuted = isMuted
+                        } label: {
+                            Image(systemName: isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill")
+                                .font(.footnote)
+                                .foregroundStyle(.white)
+                                .padding(8)
+                                .background(.ultraThinMaterial, in: Circle())
+                        }
                     }
+                    .padding(.top, 110)
+                    .padding(.horizontal, 16)
                 }
-                .padding(.top, 110)
-                .padding(.horizontal, 16)
 
                 Spacer()
 
@@ -61,8 +69,8 @@ struct VideoContentView: View {
                     loaded: isReady ? 1 : downloadProgress,
                     played: playbackProgress
                 )
-                .padding(.horizontal, 16)
-                .padding(.bottom, 104)
+                .padding(.horizontal, showsChrome ? 16 : 0)
+                .padding(.bottom, progressInset)
             }
         }
         .contentShape(Rectangle())
@@ -86,6 +94,12 @@ struct VideoContentView: View {
         .onChange(of: isActive) { _, active in
             updatePlayback(active: active)
         }
+        .onChange(of: mutedOverride) { _, muted in
+            if let muted {
+                isMuted = muted
+                player.isMuted = muted
+            }
+        }
         .onDisappear {
             player.pause()
             teardown()
@@ -93,7 +107,7 @@ struct VideoContentView: View {
     }
 
     private func load() async {
-        isMuted = model.settings.videoMuted
+        isMuted = mutedOverride ?? model.settings.videoMuted
         player.isMuted = isMuted
         guard let asset = fetchAsset(item.id) else { return }
         let bag = RequestBag()

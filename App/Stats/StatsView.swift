@@ -1,149 +1,186 @@
-import Charts
 import ShiGuangCore
 import SwiftUI
 
-/// 統計頁：只展示「已經做了多少」，不展示「還剩多少」。
+/// 統計分頁（對照原版「使用统计」）：照片 / 截屏 / 視頻各自的查看、刪除、清理，騰出空間佔比，重置瀏覽記錄。
 struct StatsView: View {
+    /// 重置瀏覽記錄後，照片與視頻分頁要重新抽組
+    let onHistoryReset: () -> Void
+
     @Environment(AppModel.self) private var model
-    @Environment(\.dismiss) private var dismiss
-    @State private var range = 14
+    @State private var showSettings = false
+    @State private var showResetOptions = false
 
     private var stats: UsageStats { model.stats }
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 16) {
-                    hero
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                        StatTile(title: "已浏览", value: "\(stats.totalViewed)", unit: "张", icon: "eye.fill", tint: .blue)
-                        StatTile(title: "已删除", value: "\(stats.totalDeleted)", unit: "张", icon: "trash.fill", tint: .red)
-                        StatTile(title: "释放空间", value: ByteSize.format(stats.bytesFreed), unit: "", icon: "internaldrive.fill", tint: .green)
-                        StatTile(title: "收藏", value: "\(stats.totalFavorited)", unit: "张", icon: "heart.fill", tint: .pink)
-                        StatTile(title: "完成组数", value: "\(stats.groupsCompleted)", unit: "组", icon: "square.stack.fill", tint: .orange)
-                        StatTile(title: "连续回顾", value: "\(stats.streak(asOf: Date(), calendar: model.calendar))", unit: "天", icon: "flame.fill", tint: .yellow)
+                VStack(spacing: 12) {
+                    ForEach(StatsBucket.allCases) { bucket in
+                        BucketCard(bucket: bucket, stat: stats.stat(for: bucket))
                     }
-                    chart
-                    footer
+                    freedSpaceCard
+                    resetRow
+                    streakFooter
                 }
-                .padding(16)
+                .padding(.horizontal, 16)
+                .padding(.top, 4)
+                .padding(.bottom, 120)
             }
             .background(Color.black.ignoresSafeArea())
-            .navigationTitle("统计")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationTitle("使用统计")
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { dismiss() }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showSettings = true
+                    } label: {
+                        Image(systemName: "gearshape.fill")
+                            .foregroundStyle(.white)
+                    }
                 }
+            }
+            .confirmationDialog("重置浏览记录", isPresented: $showResetOptions, titleVisibility: .visible) {
+                Button("重置「\(model.settings.category.title)」") { reset(model.settings.category) }
+                Button("重置视频") { reset(.videos) }
+                Button("重置全部", role: .destructive) { reset(.all) }
+            } message: {
+                Text("重置后，看过的内容会重新出现在随机回顾里。")
             }
         }
         .preferredColorScheme(.dark)
+        .sheet(isPresented: $showSettings) {
+            SettingsView(onHistoryReset: onHistoryReset)
+                .environment(model)
+        }
     }
 
-    private var hero: some View {
-        let today = stats.stat(on: Date(), calendar: model.calendar)
-        return VStack(alignment: .leading, spacing: 8) {
-            Text("今天")
+    // MARK: - 騰出空間
+
+    private var freedSpaceCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("腾出空间", systemImage: "externaldrive")
                 .font(.subheadline)
-                .foregroundStyle(.white.opacity(0.6))
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text("\(today.viewed)").font(.system(size: 44, weight: .bold, design: .rounded))
-                Text("张回忆").font(.headline)
-                Spacer()
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text("删除 \(today.deleted) 张")
-                    Text("释放 \(ByteSize.format(today.bytesFreed))")
-                }
-                .font(.footnote)
                 .foregroundStyle(.white.opacity(0.7))
+            Text(ByteSize.format(stats.bytesFreed))
+                .font(.system(size: 30, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+
+            GeometryReader { proxy in
+                HStack(spacing: 2) {
+                    if stats.bytesFreed == 0 {
+                        Capsule().fill(.white.opacity(0.12))
+                    } else {
+                        ForEach(StatsBucket.allCases) { bucket in
+                            let share = stats.freedShare(of: bucket)
+                            if share > 0 {
+                                Rectangle()
+                                    .fill(color(for: bucket))
+                                    .frame(width: max(proxy.size.width * share - 2, 2))
+                            }
+                        }
+                    }
+                }
+                .clipShape(Capsule())
             }
-            if stats.totalViewed > 0 {
-                Text("你一共删掉了看过内容的 \(Int((stats.deletionRate * 100).rounded()))%，留下的都是珍贵的。")
-                    .font(.footnote)
-                    .foregroundStyle(.white.opacity(0.6))
+            .frame(height: 6)
+
+            HStack(spacing: 14) {
+                ForEach(StatsBucket.allCases) { bucket in
+                    HStack(spacing: 4) {
+                        Circle().fill(color(for: bucket)).frame(width: 6, height: 6)
+                        Text("\(bucket.title) \(Int((stats.freedShare(of: bucket) * 100).rounded()))%")
+                    }
+                }
             }
+            .font(.caption2)
+            .foregroundStyle(.white.opacity(0.6))
         }
-        .foregroundStyle(.white)
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
-    private var chart: some View {
-        let days = stats.lastDays(range, asOf: Date(), calendar: model.calendar)
-        return VStack(alignment: .leading, spacing: 12) {
+    private var resetRow: some View {
+        Button {
+            showResetOptions = true
+        } label: {
             HStack {
-                Text("最近 \(range) 天").font(.headline)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("重置浏览记录")
+                        .font(.subheadline.weight(.semibold))
+                    Text("浏览了 \(model.history.viewedCount) 个项目，其中 \(stats.totalDeleted) 个已删除。")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.55))
+                }
                 Spacer()
-                Picker("范围", selection: $range) {
-                    Text("7 天").tag(7)
-                    Text("14 天").tag(14)
-                    Text("30 天").tag(30)
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 180)
+                Image(systemName: "chevron.right")
+                    .foregroundStyle(.white.opacity(0.4))
             }
-            Chart {
-                ForEach(days, id: \.date) { day in
-                    BarMark(
-                        x: .value("日期", day.date, unit: .day),
-                        y: .value("数量", day.stat.viewed)
-                    )
-                    .foregroundStyle(by: .value("类型", "浏览"))
-                    BarMark(
-                        x: .value("日期", day.date, unit: .day),
-                        y: .value("数量", day.stat.deleted)
-                    )
-                    .foregroundStyle(by: .value("类型", "删除"))
-                }
-            }
-            .chartForegroundStyleScale(["浏览": Color.blue, "删除": Color.red])
-            .frame(height: 200)
+            .foregroundStyle(.white)
+            .padding(16)
+            .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
-        .foregroundStyle(.white)
-        .padding(16)
-        .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .buttonStyle(.plain)
     }
 
-    private var footer: some View {
-        VStack(spacing: 4) {
-            if let first = stats.firstUseDate {
-                Text("从 \(DateDisplay.format(first, style: .numeric, calendar: model.calendar)) 开始，你已经回顾了 \(model.history.viewedCount) 个不同的回忆")
-            }
-            Text("所有数据只保存在你的设备上")
+    @ViewBuilder
+    private var streakFooter: some View {
+        let streak = stats.streak(asOf: Date(), calendar: model.calendar)
+        if streak > 0 || stats.groupsCompleted > 0 {
+            Text("已经连续回顾 \(streak) 天，完成了 \(stats.groupsCompleted) 组")
+                .font(.footnote)
+                .foregroundStyle(.white.opacity(0.45))
+                .padding(.top, 8)
         }
-        .font(.footnote)
-        .foregroundStyle(.white.opacity(0.45))
-        .multilineTextAlignment(.center)
-        .padding(.top, 8)
+    }
+
+    private func color(for bucket: StatsBucket) -> Color {
+        switch bucket {
+        case .photo: return .blue
+        case .screenshot: return .orange
+        case .video: return .green
+        }
+    }
+
+    private func reset(_ category: MediaCategory) {
+        model.resetHistory(for: category)
+        onHistoryReset()
+        Haptics.success()
     }
 }
 
-struct StatTile: View {
-    let title: String
-    let value: String
-    let unit: String
-    let icon: String
-    let tint: Color
+/// 單一類別的卡片：查看 / 刪除 / 清理
+private struct BucketCard: View {
+    let bucket: StatsBucket
+    let stat: BucketStat
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label(title, systemImage: icon)
-                .font(.subheadline)
-                .foregroundStyle(tint)
-            HStack(alignment: .firstTextBaseline, spacing: 3) {
-                Text(value)
-                    .font(.system(.title, design: .rounded).weight(.bold))
-                    .minimumScaleFactor(0.6)
-                    .lineLimit(1)
-                if !unit.isEmpty {
-                    Text(unit).font(.footnote).foregroundStyle(.white.opacity(0.6))
-                }
+        VStack(alignment: .leading, spacing: 12) {
+            Label(bucket.title, systemImage: bucket.systemImage)
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.85))
+            HStack(alignment: .top) {
+                metric(title: "查看", icon: "eye.fill", tint: .blue, value: "\(stat.viewed)")
+                metric(title: "删除", icon: "trash.fill", tint: .red, value: "\(stat.deleted)")
+                metric(title: "清理", icon: "leaf.fill", tint: .green, value: ByteSize.format(stat.bytesFreed))
             }
-            .foregroundStyle(.white)
         }
-        .padding(14)
+        .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private func metric(title: String, icon: String, tint: Color, value: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Label(title, systemImage: icon)
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(tint)
+            Text(value)
+                .font(.system(.title3, design: .rounded).weight(.bold))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

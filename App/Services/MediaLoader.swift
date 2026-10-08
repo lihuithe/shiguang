@@ -61,6 +61,24 @@ final class MediaLoader {
         }
     }
 
+    /// 只回呼一次的小縮圖（不從 iCloud 下載），用於取主色
+    func thumbnail(for asset: PHAsset, side: CGFloat) async -> UIImage? {
+        await withCheckedContinuation { continuation in
+            let options = PHImageRequestOptions()
+            options.deliveryMode = .fastFormat
+            options.resizeMode = .fast
+            options.isNetworkAccessAllowed = false
+            cachingManager.requestImage(
+                for: asset,
+                targetSize: CGSize(width: side, height: side),
+                contentMode: .aspectFill,
+                options: options
+            ) { image, _ in
+                continuation.resume(returning: image)
+            }
+        }
+    }
+
     func cancel(_ id: PHImageRequestID) {
         cachingManager.cancelImageRequest(id)
     }

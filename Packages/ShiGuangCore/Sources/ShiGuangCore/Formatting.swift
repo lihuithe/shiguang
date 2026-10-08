@@ -50,7 +50,7 @@ public enum ByteSize {
             value /= 1024
             unit += 1
         }
-        if unit == 0 { return "\(Int(value)) B" }
+        if unit == 0 { return "\(Int(value)) 字节" }
         let number = String(format: value >= 100 ? "%.0f" : "%.1f", value)
         return "\(number) \(units[unit])"
     }

@@ -1,20 +1,24 @@
 import Foundation
 
-/// 一組照片的瀏覽狀態：目前位置、標記刪除、收藏，以及撤銷。
+/// 一組照片（或影片）的瀏覽狀態。
 ///
-/// 刪除不會立即執行，而是在一組看完後統一確認，與原版「看完一組再批量刪除」一致。
+/// 互動模型與原版一致：
+/// - 左右（影片為上下）切換上一張 / 下一張；
+/// - 上滑刪除後，該項目立即從序列中消失，下一張接上，可以撤銷；
+/// - 滑過最後一張即「看完一組」，此時統一確認待刪除的項目。
 public struct GroupSession: Equatable {
     public enum Event: Equatable {
-        case markedForDeletion(id: String, fromIndex: Int)
-        case unmarkedForDeletion(id: String, fromIndex: Int)
+        /// visibleIndex：刪除當下它在可見序列中的位置，撤銷時放回原位
+        case deleted(id: String, visibleIndex: Int)
         case moved(fromIndex: Int)
         case favoriteChanged(id: String, wasFavorite: Bool)
     }
 
-    public let items: [MediaItem]
-    public private(set) var currentIndex: Int = 0
+    public private(set) var items: [MediaItem]
     public private(set) var markedForDeletion: Set<String> = []
     public private(set) var favorites: Set<String>
+    /// 在 `visibleItems` 中的位置；等於 visibleItems.count 表示看完了
+    public private(set) var currentIndex: Int = 0
     public private(set) var history: [Event] = []
 
     public init(items: [MediaItem]) {
@@ -22,19 +26,42 @@ public struct GroupSession: Equatable {
         self.favorites = Set(items.filter(\.isFavorite).map(\.id))
     }
 
-    public var isEmpty: Bool { items.isEmpty }
-    public var isFinished: Bool { currentIndex >= items.count }
-    public var current: MediaItem? { isFinished ? nil : items[currentIndex] }
-    public var canGoBack: Bool { currentIndex > 0 }
-    public var canUndo: Bool { !history.isEmpty }
+    // MARK: - 查詢
 
-    /// 進度，例如 3/15。
-    public var progressText: String {
-        "\(min(currentIndex + 1, items.count))/\(items.count)"
+    /// 尚未被標記刪除的項目，順序與原組一致
+    public var visibleItems: [MediaItem] {
+        items.filter { !markedForDeletion.contains($0.id) }
     }
+
+    public var isEmpty: Bool { items.isEmpty }
+    public var isFinished: Bool { currentIndex >= visibleItems.count }
+    public var current: MediaItem? { item(atVisibleIndex: currentIndex) }
+    public var previous: MediaItem? { item(atVisibleIndex: currentIndex - 1) }
+    public var next: MediaItem? { item(atVisibleIndex: currentIndex + 1) }
+    public var canGoBack: Bool { currentIndex > 0 && !visibleItems.isEmpty }
+    public var canUndo: Bool { !history.isEmpty }
 
     public var pendingDeletion: [MediaItem] {
         items.filter { markedForDeletion.contains($0.id) }
+    }
+
+    /// 從目前位置開始的接下來幾項，首頁的扇形卡片用它預覽
+    public func upcoming(_ count: Int) -> [MediaItem] {
+        let visible = visibleItems
+        guard currentIndex < visible.count, count > 0 else { return [] }
+        return Array(visible[currentIndex..<min(currentIndex + count, visible.count)])
+    }
+
+    /// 還沒看到的數量（不含目前這張）
+    public var remainingCount: Int {
+        max(visibleItems.count - currentIndex - 1, 0)
+    }
+
+    /// 目前這張在整組中的進度，0...1，用於頂部進度條
+    public var progress: Double {
+        guard !items.isEmpty else { return 0 }
+        guard let current, let position = items.firstIndex(of: current) else { return 1 }
+        return Double(position + 1) / Double(items.count)
     }
 
     public func isMarkedForDeletion(_ id: String) -> Bool {
@@ -45,48 +72,36 @@ public struct GroupSession: Equatable {
         favorites.contains(id)
     }
 
-    /// 上滑：標記目前這張為待刪除，並前進到下一張。
-    public mutating func markCurrentForDeletion() {
-        guard let item = current else { return }
-        markedForDeletion.insert(item.id)
-        history.append(.markedForDeletion(id: item.id, fromIndex: currentIndex))
-        currentIndex += 1
+    private func item(atVisibleIndex index: Int) -> MediaItem? {
+        let visible = visibleItems
+        return visible.indices.contains(index) ? visible[index] : nil
     }
 
-    /// 左滑：保留並看下一張。
-    public mutating func next() {
+    // MARK: - 操作
+
+    /// 上滑刪除：目前這張移出序列，下一張自動接上；若刪的是最後一張則看完一組。
+    @discardableResult
+    public mutating func deleteCurrent() -> MediaItem? {
+        guard let item = current else { return nil }
+        markedForDeletion.insert(item.id)
+        history.append(.deleted(id: item.id, visibleIndex: currentIndex))
+        return item
+    }
+
+    /// 下一張；在最後一張時呼叫即看完一組。
+    public mutating func goForward() {
         guard !isFinished else { return }
         history.append(.moved(fromIndex: currentIndex))
         currentIndex += 1
     }
 
-    /// 右滑：回到上一張。
-    public mutating func previous() {
+    public mutating func goBack() {
         guard canGoBack else { return }
         history.append(.moved(fromIndex: currentIndex))
-        currentIndex -= 1
+        currentIndex = min(currentIndex, visibleItems.count) - 1
     }
 
-    /// 跳到組內任意位置（例如結算頁點擊縮圖回看）。
-    public mutating func jump(to index: Int) {
-        guard items.indices.contains(index), index != currentIndex else { return }
-        history.append(.moved(fromIndex: currentIndex))
-        currentIndex = index
-    }
-
-    /// 在結算頁切換某一項的刪除標記。
-    public mutating func toggleDeletion(_ id: String) {
-        guard items.contains(where: { $0.id == id }) else { return }
-        if markedForDeletion.contains(id) {
-            markedForDeletion.remove(id)
-            history.append(.unmarkedForDeletion(id: id, fromIndex: currentIndex))
-        } else {
-            markedForDeletion.insert(id)
-            history.append(.markedForDeletion(id: id, fromIndex: currentIndex))
-        }
-    }
-
-    /// 下滑或雙擊：切換收藏。回傳切換後的狀態。
+    /// 收藏按鈕或雙擊：切換收藏。回傳切換後的狀態。
     @discardableResult
     public mutating func toggleFavorite(_ id: String) -> Bool {
         guard items.contains(where: { $0.id == id }) else { return false }
@@ -101,12 +116,9 @@ public struct GroupSession: Equatable {
     public mutating func undo() -> Event? {
         guard let last = history.popLast() else { return nil }
         switch last {
-        case let .markedForDeletion(id, fromIndex):
+        case let .deleted(id, visibleIndex):
             markedForDeletion.remove(id)
-            currentIndex = fromIndex
-        case let .unmarkedForDeletion(id, fromIndex):
-            markedForDeletion.insert(id)
-            currentIndex = fromIndex
+            currentIndex = visibleIndex
         case let .moved(fromIndex):
             currentIndex = fromIndex
         case let .favoriteChanged(id, wasFavorite):
@@ -115,10 +127,36 @@ public struct GroupSession: Equatable {
         return last
     }
 
-    /// 把位置移到結尾，進入結算。
-    public mutating func finish() {
-        guard !isFinished else { return }
-        history.append(.moved(fromIndex: currentIndex))
-        currentIndex = items.count
+    /// 在「有待刪除」清單中取消某一項的刪除（留下它）。
+    public mutating func keep(_ id: String) {
+        markedForDeletion.remove(id)
+        currentIndex = min(currentIndex, visibleItems.count)
+    }
+
+    /// 項目已在外部被刪除（例如在「回到那天」或照片 App 裡刪的）：從組中移除，
+    /// 保留目前位置、刪除標記與收藏。撤銷記錄因位置失效而清空。
+    public mutating func removeExternally(_ ids: Set<String>) {
+        let removed = ids.intersection(items.map(\.id))
+        guard !removed.isEmpty else { return }
+        let visibleBefore = visibleItems
+        let currentID = current?.id
+        items.removeAll { removed.contains($0.id) }
+        markedForDeletion.subtract(removed)
+        favorites.subtract(removed)
+        history.removeAll()
+        let visible = visibleItems
+        if let currentID, let index = visible.firstIndex(where: { $0.id == currentID }) {
+            currentIndex = index
+        } else {
+            // 目前這張被刪了：停在它原本位置上的下一張
+            let survivorsBefore = visibleBefore.prefix(currentIndex).filter { !removed.contains($0.id) }.count
+            currentIndex = min(survivorsBefore, visible.count)
+        }
+    }
+
+    /// 看完後關掉待刪除清單：回到最後一張繼續看。
+    public mutating func reopen() {
+        guard isFinished else { return }
+        currentIndex = max(visibleItems.count - 1, 0)
     }
 }

@@ -19,21 +19,23 @@ struct ShiGuangApp: App {
 struct RootView: View {
     let model: AppModel
 
-    @State private var browser: BrowserViewModel
+    @State private var photos: ReviewModel
+    @State private var videos: ReviewModel
+    @State private var tab: AppTab = .photos
     @State private var didPrune = false
     @Environment(\.scenePhase) private var scenePhase
 
     init(model: AppModel) {
         self.model = model
-        _browser = State(initialValue: BrowserViewModel(model: model))
+        _photos = State(initialValue: ReviewModel(kind: .photos, model: model))
+        _videos = State(initialValue: ReviewModel(kind: .videos, model: model))
     }
 
     var body: some View {
         Group {
             if model.canBrowse {
-                BrowserView(vm: browser)
+                MainTabView(tab: $tab, photos: photos, videos: videos)
                     .task {
-                        if browser.phase == .loading { browser.startNewGroup() }
                         if !didPrune {
                             didPrune = true
                             model.pruneHistory()
@@ -44,16 +46,21 @@ struct RootView: View {
             }
         }
         .onChange(of: model.libraryVersion) {
-            browser.libraryDidChange()
+            photos.libraryDidChange()
+            videos.libraryDidChange()
         }
         .onChange(of: model.settings.demoMode) {
-            browser.categoryDidChange()
+            photos.reload()
+            videos.reload()
         }
         .onChange(of: model.settings.category) {
-            browser.categoryDidChange()
+            photos.reload()
         }
         .onChange(of: model.canBrowse) { _, canBrowse in
-            if canBrowse { browser.startNewGroup() }
+            if canBrowse {
+                photos.reload()
+                videos.reload()
+            }
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
@@ -65,6 +72,36 @@ struct RootView: View {
                 break
             }
         }
+    }
+}
+
+/// 三個分頁加底部浮動 Tab 列。照片的全螢幕瀏覽由 PhotoHomeView 以 fullScreenCover 呈現，會蓋住 Tab 列。
+struct MainTabView: View {
+    @Binding var tab: AppTab
+    let photos: ReviewModel
+    let videos: ReviewModel
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            Group {
+                switch tab {
+                case .photos:
+                    PhotoHomeView(review: photos)
+                case .videos:
+                    VideoFeedView(review: videos)
+                case .stats:
+                    StatsView {
+                        photos.reload()
+                        videos.reload()
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            FloatingTabBar(selection: $tab)
+                .padding(.bottom, 8)
+        }
+        .background(Color.black.ignoresSafeArea())
     }
 }
 

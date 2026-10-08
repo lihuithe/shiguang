@@ -18,6 +18,7 @@ final class AppModel {
     var reminderError: String?
 
     let library = PhotoLibraryService()
+    let locations = LocationNamer()
     let calendar = Calendar.current
 
     @ObservationIgnored private let sync = HistorySyncService()
@@ -123,12 +124,19 @@ final class AppModel {
     func markViewed(_ item: MediaItem) {
         let now = Date()
         history.markViewed(item.id, at: now)
-        stats.recordViewed(at: now, calendar: calendar)
+        stats.recordViewed(StatsBucket(item: item), at: now, calendar: calendar)
         scheduleSave()
     }
 
-    func recordDeleted(count: Int, bytes: Int64) {
-        stats.recordDeleted(count: count, bytes: bytes, at: Date(), calendar: calendar)
+    /// 按「照片 / 截屏 / 視頻」分類記錄刪除數量與騰出的空間
+    private func recordDeleted(_ items: [MediaItem], sizes: [String: Int64]) {
+        let now = Date()
+        for bucket in StatsBucket.allCases {
+            let matched = items.filter { StatsBucket(item: $0) == bucket }
+            guard !matched.isEmpty else { continue }
+            let bytes = matched.reduce(Int64(0)) { $0 + (sizes[$1.id] ?? 0) }
+            stats.recordDeleted(bucket, count: matched.count, bytes: bytes, at: now, calendar: calendar)
+        }
         scheduleSave()
     }
 
@@ -148,16 +156,17 @@ final class AppModel {
         guard !ids.isEmpty else { return true }
         if settings.demoMode {
             removeDemoItems(ids: Set(ids))
-            recordDeleted(count: ids.count, bytes: Int64(ids.count) * 3_200_000)
+            let sizes = Dictionary(uniqueKeysWithValues: items.map { ($0.id, $0.kind == .video ? Int64(24_000_000) : Int64(3_200_000)) })
+            recordDeleted(items, sizes: sizes)
             return true
         }
-        let bytes = library.estimatedFileSize(ids: ids)
+        let sizes = library.estimatedFileSizes(ids: ids)
         do {
             try await library.delete(ids: ids)
         } catch PhotoLibraryError.userCancelled {
             return false
         }
-        recordDeleted(count: ids.count, bytes: bytes)
+        recordDeleted(items, sizes: sizes)
         return true
     }
 

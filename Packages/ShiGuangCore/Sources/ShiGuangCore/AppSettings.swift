@@ -27,7 +27,10 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var groupSize: Int = AppSettings.defaultGroupSize {
         didSet { groupSize = AppSettings.clampGroupSize(groupSize) }
     }
-    public var category: MediaCategory = .all
+    /// 照片分頁的回顧分類（影片有獨立的分頁）
+    public var category: MediaCategory = .photos {
+        didSet { if !MediaCategory.photoTabCases.contains(category) { category = .photos } }
+    }
 
     // 手勢與回饋
     public var hapticsEnabled = true
@@ -41,8 +44,9 @@ public struct AppSettings: Codable, Equatable, Sendable {
     public var livePhotoMuted = true
     public var videoAutoplay = true
     public var videoMuted = false
-    public var showDate = true
-    public var dateStyle: DateDisplayStyle = .full
+    /// 第一次播放視頻前詢問「視頻會自動播放聲音，要繼續嗎？」
+    public var videoSoundPrompt = true
+    public var dateStyle: DateDisplayStyle = .relative
 
     // 同步與提醒
     public var iCloudSyncEnabled = false
@@ -62,7 +66,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
     enum CodingKeys: String, CodingKey {
         case groupSize, category, hapticsEnabled, doubleTapToFavorite, deleteAnimationEnabled
         case hdrEnabled, hdrAutoOffInLowBrightness, livePhotoAutoplay, livePhotoMuted
-        case videoAutoplay, videoMuted, showDate, dateStyle
+        case videoAutoplay, videoMuted, videoSoundPrompt, dateStyle
         case iCloudSyncEnabled, dailyReminderEnabled, reminderHour, reminderMinute, demoMode
     }
 
@@ -70,7 +74,8 @@ public struct AppSettings: Codable, Equatable, Sendable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         let d = AppSettings()
         groupSize = AppSettings.clampGroupSize(try c.decodeIfPresent(Int.self, forKey: .groupSize) ?? d.groupSize)
-        category = (try? c.decodeIfPresent(MediaCategory.self, forKey: .category)) ?? d.category
+        let decodedCategory = (try? c.decodeIfPresent(MediaCategory.self, forKey: .category)) ?? d.category
+        category = MediaCategory.photoTabCases.contains(decodedCategory) ? decodedCategory : d.category
         hapticsEnabled = try c.decodeIfPresent(Bool.self, forKey: .hapticsEnabled) ?? d.hapticsEnabled
         doubleTapToFavorite = try c.decodeIfPresent(Bool.self, forKey: .doubleTapToFavorite) ?? d.doubleTapToFavorite
         deleteAnimationEnabled = try c.decodeIfPresent(Bool.self, forKey: .deleteAnimationEnabled) ?? d.deleteAnimationEnabled
@@ -80,7 +85,7 @@ public struct AppSettings: Codable, Equatable, Sendable {
         livePhotoMuted = try c.decodeIfPresent(Bool.self, forKey: .livePhotoMuted) ?? d.livePhotoMuted
         videoAutoplay = try c.decodeIfPresent(Bool.self, forKey: .videoAutoplay) ?? d.videoAutoplay
         videoMuted = try c.decodeIfPresent(Bool.self, forKey: .videoMuted) ?? d.videoMuted
-        showDate = try c.decodeIfPresent(Bool.self, forKey: .showDate) ?? d.showDate
+        videoSoundPrompt = try c.decodeIfPresent(Bool.self, forKey: .videoSoundPrompt) ?? d.videoSoundPrompt
         dateStyle = (try? c.decodeIfPresent(DateDisplayStyle.self, forKey: .dateStyle)) ?? d.dateStyle
         iCloudSyncEnabled = try c.decodeIfPresent(Bool.self, forKey: .iCloudSyncEnabled) ?? d.iCloudSyncEnabled
         dailyReminderEnabled = try c.decodeIfPresent(Bool.self, forKey: .dailyReminderEnabled) ?? d.dailyReminderEnabled

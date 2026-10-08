@@ -2,21 +2,29 @@ import XCTest
 @testable import ShiGuangCore
 
 final class SwipeClassifierTests: XCTestCase {
-    func testDirections() {
-        XCTAssertEqual(SwipeClassifier.classify(translationX: 0, translationY: -120), .delete)
-        XCTAssertEqual(SwipeClassifier.classify(translationX: 10, translationY: 130), .favorite)
-        XCTAssertEqual(SwipeClassifier.classify(translationX: -150, translationY: 20), .next)
-        XCTAssertEqual(SwipeClassifier.classify(translationX: 150, translationY: -20), .previous)
+    func testAxisLock() {
+        XCTAssertNil(SwipeClassifier.lockAxis(translationX: 3, translationY: -4))
+        XCTAssertEqual(SwipeClassifier.lockAxis(translationX: -20, translationY: 5), .horizontal)
+        XCTAssertEqual(SwipeClassifier.lockAxis(translationX: 4, translationY: -15), .vertical)
     }
 
-    func testSmallDragIsIgnored() {
-        XCTAssertEqual(SwipeClassifier.classify(translationX: 20, translationY: -30), .none)
-        XCTAssertEqual(SwipeClassifier.classify(translationX: 0, translationY: 0), .none)
+    func testPageTurn() {
+        XCTAssertEqual(SwipeClassifier.pageTurn(translation: -120, predictedEnd: -130, pageLength: 400), .forward)
+        XCTAssertEqual(SwipeClassifier.pageTurn(translation: 120, predictedEnd: 130, pageLength: 400), .backward)
+        XCTAssertEqual(SwipeClassifier.pageTurn(translation: -30, predictedEnd: -60, pageLength: 400), .none)
+        // 快速輕掃
+        XCTAssertEqual(SwipeClassifier.pageTurn(translation: -30, predictedEnd: -260, pageLength: 400), .forward)
+        XCTAssertEqual(SwipeClassifier.pageTurn(translation: -30, predictedEnd: -260, pageLength: 0), .none)
     }
 
-    func testFlick() {
-        XCTAssertEqual(SwipeClassifier.classify(translationX: 0, translationY: -40, predictedEndX: 0, predictedEndY: -400), .delete)
-        XCTAssertEqual(SwipeClassifier.classify(translationX: -30, translationY: 0, predictedEndX: -500, predictedEndY: 0), .next)
+    func testDelete() {
+        XCTAssertTrue(SwipeClassifier.shouldDelete(translationY: -160, predictedEndY: -170, height: 800))
+        XCTAssertFalse(SwipeClassifier.shouldDelete(translationY: -60, predictedEndY: -80, height: 800))
+        XCTAssertTrue(SwipeClassifier.shouldDelete(translationY: -60, predictedEndY: -400, height: 800))
+        XCTAssertFalse(SwipeClassifier.shouldDelete(translationY: 200, predictedEndY: 400, height: 800))
+        XCTAssertEqual(SwipeClassifier.deleteProgress(translationY: 50, height: 800), 0)
+        XCTAssertEqual(SwipeClassifier.deleteProgress(translationY: -140, height: 800), 0.5, accuracy: 0.0001)
+        XCTAssertEqual(SwipeClassifier.deleteProgress(translationY: -900, height: 800), 1)
     }
 
     func testPinch() {
@@ -59,8 +67,10 @@ final class UsageStatsTests: XCTestCase {
     func testTotalsAndDaily() {
         var stats = UsageStats()
         let day = TestSupport.date(2026, 10, 8)
-        stats.recordViewed(count: 15, at: day, calendar: cal)
-        stats.recordDeleted(count: 3, bytes: 9_000_000, at: day, calendar: cal)
+        stats.recordViewed(.photo, count: 10, at: day, calendar: cal)
+        stats.recordViewed(.video, count: 5, at: day, calendar: cal)
+        stats.recordDeleted(.photo, count: 2, bytes: 6_000_000, at: day, calendar: cal)
+        stats.recordDeleted(.video, count: 1, bytes: 3_000_000, at: day, calendar: cal)
         stats.recordGroupCompleted()
         XCTAssertEqual(stats.totalViewed, 15)
         XCTAssertEqual(stats.totalDeleted, 3)
@@ -69,12 +79,31 @@ final class UsageStatsTests: XCTestCase {
         XCTAssertEqual(stats.stat(on: day, calendar: cal), DayStat(viewed: 15, deleted: 3, bytesFreed: 9_000_000))
         XCTAssertEqual(stats.deletionRate, 0.2, accuracy: 0.0001)
         XCTAssertEqual(stats.firstUseDate, day)
+        XCTAssertEqual(stats.stat(for: .photo), BucketStat(viewed: 10, deleted: 2, bytesFreed: 6_000_000))
+        XCTAssertEqual(stats.stat(for: .screenshot), BucketStat())
+        XCTAssertEqual(stats.freedShare(of: .video), 1.0 / 3.0, accuracy: 0.0001)
+        XCTAssertEqual(UsageStats().freedShare(of: .photo), 0)
+    }
+
+    func testBucketForItem() {
+        XCTAssertEqual(StatsBucket(item: MediaItem(id: "p")), .photo)
+        XCTAssertEqual(StatsBucket(item: MediaItem(id: "s", isScreenshot: true)), .screenshot)
+        XCTAssertEqual(StatsBucket(item: MediaItem(id: "v", kind: .video)), .video)
+    }
+
+    func testDecodesOldFileWithoutBuckets() throws {
+        let json = #"{"totalViewed": 7, "totalDeleted": 2, "bytesFreed": 100}"#
+        let stats = try JSONDecoder().decode(UsageStats.self, from: Data(json.utf8))
+        XCTAssertEqual(stats.totalViewed, 7)
+        XCTAssertEqual(stats.stat(for: .photo), BucketStat())
+        let roundTrip = try JSONDecoder().decode(UsageStats.self, from: JSONEncoder().encode(stats))
+        XCTAssertEqual(roundTrip, stats)
     }
 
     func testStreak() {
         var stats = UsageStats()
         for d in [3, 4, 5, 7] {
-            stats.recordViewed(at: TestSupport.date(2026, 10, d), calendar: cal)
+            stats.recordViewed(.photo, at: TestSupport.date(2026, 10, d), calendar: cal)
         }
         // 10/7 有、10/6 沒有 → 1
         XCTAssertEqual(stats.streak(asOf: TestSupport.date(2026, 10, 7), calendar: cal), 1)
@@ -86,7 +115,7 @@ final class UsageStatsTests: XCTestCase {
 
     func testLastDays() {
         var stats = UsageStats()
-        stats.recordViewed(count: 4, at: TestSupport.date(2026, 10, 6), calendar: cal)
+        stats.recordViewed(.screenshot, count: 4, at: TestSupport.date(2026, 10, 6), calendar: cal)
         let days = stats.lastDays(3, asOf: TestSupport.date(2026, 10, 8), calendar: cal)
         XCTAssertEqual(days.map { DayBucket.key(for: $0.date, calendar: cal) }, ["2026-10-06", "2026-10-07", "2026-10-08"])
         XCTAssertEqual(days.map(\.stat.viewed), [4, 0, 0])
@@ -103,9 +132,16 @@ final class SettingsTests: XCTestCase {
 
         let decoded = try JSONDecoder().decode(AppSettings.self, from: Data(#"{"groupSize": 30, "category": "bogus"}"#.utf8))
         XCTAssertEqual(decoded.groupSize, 30)
-        XCTAssertEqual(decoded.category, .all)
+        XCTAssertEqual(decoded.category, .photos)
         XCTAssertTrue(decoded.hapticsEnabled)
-        XCTAssertEqual(decoded.dateStyle, .full)
+        XCTAssertTrue(decoded.videoSoundPrompt)
+        XCTAssertEqual(decoded.dateStyle, .relative)
+
+        // 舊版本存的 all / videos 不屬於照片分頁，回到預設
+        let legacy = try JSONDecoder().decode(AppSettings.self, from: Data(#"{"category": "videos"}"#.utf8))
+        XCTAssertEqual(legacy.category, .photos)
+        settings.category = .all
+        XCTAssertEqual(settings.category, .photos)
     }
 
     func testRoundTrip() throws {
@@ -160,10 +196,10 @@ final class FormattingTests: XCTestCase {
     }
 
     func testByteSizeAndDuration() {
-        XCTAssertEqual(ByteSize.format(512), "512 B")
+        XCTAssertEqual(ByteSize.format(512), "512 字节")
         XCTAssertEqual(ByteSize.format(1536), "1.5 KB")
         XCTAssertEqual(ByteSize.format(250 * 1024 * 1024), "250 MB")
-        XCTAssertEqual(ByteSize.format(-5), "0 B")
+        XCTAssertEqual(ByteSize.format(-5), "0 字节")
         XCTAssertEqual(DurationText.format(7), "0:07")
         XCTAssertEqual(DurationText.format(750), "12:30")
         XCTAssertEqual(DurationText.format(3723), "1:02:03")

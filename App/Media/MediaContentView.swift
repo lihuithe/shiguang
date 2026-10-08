@@ -8,15 +8,21 @@ struct MediaContentView: View {
     let item: MediaItem
     /// 只有目前這張才自動播放實況照片與影片
     var isActive = true
+    /// 嵌在瀏覽頁的圓角卡片或信息流裡：填滿外框，影片不顯示自帶的控制元件
+    var embedded = false
+    /// 由外部控制影片是否靜音（信息流的聲音提示）；nil 表示用設定值
+    var videoMuted: Bool? = nil
+    /// 影片進度條距離底部的距離
+    var videoProgressInset: CGFloat = 104
 
     @Environment(AppModel.self) private var model
 
     var body: some View {
         Group {
             if DemoLibrary.isDemoID(item.id) {
-                DemoCardView(item: item)
+                DemoCardView(item: item, embedded: embedded)
             } else if item.kind == .video {
-                VideoContentView(item: item, isActive: isActive)
+                VideoContentView(item: item, isActive: isActive, showsChrome: !embedded, mutedOverride: videoMuted, progressInset: videoProgressInset)
             } else if item.isLivePhoto {
                 LivePhotoContentView(item: item, isActive: isActive)
             } else if item.isAnimated {
@@ -117,13 +123,15 @@ struct ICloudProgressBadge: View {
 struct ThumbnailView: View {
     let item: MediaItem
     var side: CGFloat = 120
+    /// 寬高比，預設正方形
+    var aspect: CGFloat = 1
 
     @State private var image: UIImage?
 
-    /// 固定為正方形，圖片填滿裁切
+    /// 固定寬高比，圖片填滿裁切
     var body: some View {
         Color(white: 0.15)
-            .aspectRatio(1, contentMode: .fit)
+            .aspectRatio(aspect, contentMode: .fit)
             .overlay {
                 if DemoLibrary.isDemoID(item.id) {
                     DemoCardView(item: item, compact: true)
@@ -206,7 +214,7 @@ struct LivePhotoContentView: View {
 
     var body: some View {
         GeometryReader { proxy in
-            ZStack(alignment: .topLeading) {
+            ZStack {
                 if let livePhoto {
                     LivePhotoView(
                         livePhoto: livePhoto,
@@ -216,9 +224,6 @@ struct LivePhotoContentView: View {
                 } else {
                     PhotoContentView(item: item, hdr: false)
                 }
-                MediaBadge(title: "实况", systemImage: "livephoto")
-                    .padding(.top, 110)
-                    .padding(.leading, 16)
             }
             .task(id: item.id) {
                 guard let asset = fetchAsset(item.id) else { return }
