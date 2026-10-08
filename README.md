@@ -37,7 +37,9 @@ shiguang-ios/
 │   ├── Services/                # PhotoKit、媒体加载、持久化、iCloud 同步、触感、通知
 │   └── Resources/Assets.xcassets
 ├── Packages/ShiGuangCore/       # 纯 Swift 核心逻辑 + 单元测试（不依赖 UIKit）
-└── scripts/lint_brackets.py     # 无编译器环境下的括号配对检查
+└── scripts/
+    ├── make_icon.py             # 生成 App 图标（python scripts/make_icon.py，需要 Pillow）
+    └── lint_brackets.py         # 无编译器环境下的括号配对检查
 ```
 
 核心逻辑都在 `ShiGuangCore`：随机抽组（`GroupPicker`）、组内状态、删除即移出序列与撤销（`GroupSession`）、浏览记录与 iCloud 合并（`ViewHistory`）、手势判定（`SwipeClassifier`）、统计（`UsageStats`）、设置（`AppSettings`）、日期与容量格式化。
