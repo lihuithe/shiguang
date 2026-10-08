@@ -101,30 +101,39 @@ struct VideoFeedView: View {
     // MARK: - 信息流
 
     private var feed: some View {
-        GeometryReader { geo in
-            ScrollView(.vertical) {
-                LazyVStack(spacing: 0) {
-                    ForEach(review.session.visibleItems) { item in
-                        page(item, size: geo.size, safeTop: geo.safeAreaInsets.top)
-                            .frame(width: geo.size.width, height: geo.size.height + geo.safeAreaInsets.top)
-                            .id(item.id)
+        ScrollView(.vertical) {
+            LazyVStack(spacing: 0) {
+                ForEach(review.session.visibleItems) { item in
+                    // 每頁的大小由系統依 ScrollView 實際可見範圍決定，一頁剛好一支，不會露出下一支
+                    GeometryReader { geo in
+                        page(item, size: geo.size)
                     }
-                    groupEndPage
-                        .frame(width: geo.size.width, height: geo.size.height + geo.safeAreaInsets.top)
-                        .id(pagerEndID)
+                    .containerRelativeFrame([.horizontal, .vertical])
+                    .id(item.id)
                 }
-                .scrollTargetLayout()
+                groupEndPage
+                    .containerRelativeFrame([.horizontal, .vertical])
+                    .id(pagerEndID)
             }
-            .scrollTargetBehavior(.paging)
-            .scrollPosition(id: $position)
-            .scrollIndicators(.hidden)
-            .scrollDisabled(needsSoundPrompt || flyingID != nil)
-            // 頂部延伸到狀態列底下，底部停在 Tab 列上方（抖音式）
-            .ignoresSafeArea(edges: .top)
+            .scrollTargetLayout()
         }
+        .scrollTargetBehavior(.paging)
+        .scrollPosition(id: $position)
+        .scrollIndicators(.hidden)
+        .scrollDisabled(needsSoundPrompt || flyingID != nil)
+        // 頂部延伸到狀態列底下，底部停在 Tab 列上方（抖音式）
+        .ignoresSafeArea(edges: .top)
     }
 
-    private func page(_ item: MediaItem, size: CGSize, safeTop: CGFloat) -> some View {
+    /// 抖音式比例適配：影片比例接近畫面時鋪滿（少量裁切），否則完整顯示並置中
+    private func shouldFill(_ item: MediaItem, in size: CGSize) -> Bool {
+        guard item.pixelWidth > 0, item.pixelHeight > 0, size.width > 0, size.height > 0 else { return false }
+        let videoAspect = CGFloat(item.pixelWidth) / CGFloat(item.pixelHeight)
+        let ratio = videoAspect / (size.width / size.height)
+        return ratio > 0.78 && ratio < 1.3
+    }
+
+    private func page(_ item: MediaItem, size: CGSize) -> some View {
         let isCurrent = item.id == current?.id
         let flying = flyingID == item.id
         return ZStack {
@@ -133,16 +142,20 @@ struct VideoFeedView: View {
                 isActive: isCurrent && isPlaybackAllowed && flyingID == nil,
                 embedded: true,
                 videoMuted: model.settings.videoMuted,
-                videoProgressInset: 0
+                videoProgressInset: 0,
+                videoFill: shouldFill(item, in: size)
             )
+            .frame(width: size.width, height: size.height)
+            .clipped()
             .scaleEffect(flying ? 0.06 : 1)
-            .offset(y: flying ? 24 - (size.height + safeTop) / 2 : 0)
+            .offset(y: flying ? 24 - size.height / 2 : 0)
             .opacity(flying ? 0 : 1)
 
             if isCurrent, !flying {
                 overlay(for: item, size: size)
             }
         }
+        .frame(width: size.width, height: size.height)
         .background(Color.black)
     }
 

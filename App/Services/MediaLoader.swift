@@ -174,14 +174,20 @@ extension MediaLoader: @unchecked Sendable {}
 
 extension UIImage {
     /// 把 GIF 解碼成動畫 UIImage。單幀圖片回傳 nil。
-    static func animated(gifData data: Data) -> UIImage? {
+    /// 每一幀縮小到 maxPixelSize 以內，避免大尺寸動圖佔用大量記憶體、拖慢翻頁。
+    static func animated(gifData data: Data, maxPixelSize: Int = 900) -> UIImage? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
         let count = CGImageSourceGetCount(source)
         guard count > 1 else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+        ]
         var frames: [UIImage] = []
         var duration: Double = 0
         for index in 0..<count {
-            guard let cgImage = CGImageSourceCreateImageAtIndex(source, index, nil) else { continue }
+            guard let cgImage = CGImageSourceCreateThumbnailAtIndex(source, index, options as CFDictionary) else { continue }
             frames.append(UIImage(cgImage: cgImage))
             duration += frameDuration(source: source, index: index)
         }

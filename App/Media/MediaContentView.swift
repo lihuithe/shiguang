@@ -14,6 +14,8 @@ struct MediaContentView: View {
     var videoMuted: Bool? = nil
     /// 影片進度條距離底部的距離
     var videoProgressInset: CGFloat = 104
+    /// 影片鋪滿外框（抖音式：比例接近螢幕的直式影片）
+    var videoFill = false
 
     @Environment(AppModel.self) private var model
 
@@ -22,7 +24,7 @@ struct MediaContentView: View {
             if DemoLibrary.isDemoID(item.id) {
                 DemoCardView(item: item, embedded: embedded)
             } else if item.kind == .video {
-                VideoContentView(item: item, isActive: isActive, showsChrome: !embedded, mutedOverride: videoMuted, progressInset: videoProgressInset)
+                VideoContentView(item: item, isActive: isActive, showsChrome: !embedded, mutedOverride: videoMuted, progressInset: videoProgressInset, fill: videoFill)
             } else if item.isLivePhoto {
                 LivePhotoContentView(item: item, isActive: isActive)
             } else if item.isAnimated {
@@ -44,6 +46,8 @@ func fetchAsset(_ id: String) -> PHAsset? {
 struct PhotoContentView: View {
     let item: MediaItem
     let hdr: Bool
+    /// 鋪滿外框（裁切）；預設完整顯示
+    var fill = false
 
     @State private var image: UIImage?
     @State private var isHDRImage = false
@@ -55,9 +59,10 @@ struct PhotoContentView: View {
                 if let image {
                     Image(uiImage: image)
                         .resizable()
-                        .scaledToFit()
+                        .aspectRatio(contentMode: fill ? .fill : .fit)
                         .allowedDynamicRange(isHDRImage ? .high : .standard)
                         .frame(width: proxy.size.width, height: proxy.size.height)
+                        .clipped()
                 } else {
                     ProgressView().tint(.white)
                 }
@@ -202,6 +207,7 @@ struct AnimatedImageView: UIViewRepresentable {
     func makeUIView(context: Context) -> UIImageView {
         let view = UIImageView()
         view.contentMode = .scaleAspectFit
+        view.isUserInteractionEnabled = false
         view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         view.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
         return view
@@ -275,6 +281,8 @@ struct LivePhotoView: UIViewRepresentable {
     func makeUIView(context: Context) -> PHLivePhotoView {
         let view = PHLivePhotoView()
         view.contentMode = .scaleAspectFit
+        // 播放完全由程式控制；關掉它自帶的按壓手勢，否則播放中會攔住手指，翻頁要等播完
+        view.isUserInteractionEnabled = false
         return view
     }
 

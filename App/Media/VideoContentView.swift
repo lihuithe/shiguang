@@ -13,6 +13,8 @@ struct VideoContentView: View {
     var mutedOverride: Bool? = nil
     /// 進度條距離底部的距離
     var progressInset: CGFloat = 104
+    /// 鋪滿外框（裁切）；否則完整顯示並置中
+    var fill = false
 
     @Environment(AppModel.self) private var model
     @State private var player = AVPlayer()
@@ -28,10 +30,10 @@ struct VideoContentView: View {
 
     var body: some View {
         ZStack {
-            PhotoContentView(item: item, hdr: false)
+            PhotoContentView(item: item, hdr: false, fill: fill)
                 .opacity(isReady ? 0 : 1)
 
-            PlayerLayerView(player: player, hdr: model.effectiveHDR)
+            PlayerLayerView(player: player, hdr: model.effectiveHDR, fill: fill)
                 .opacity(isReady ? 1 : 0)
 
             VStack {
@@ -207,6 +209,7 @@ struct VideoProgressBar: View {
 struct PlayerLayerView: UIViewRepresentable {
     let player: AVPlayer
     let hdr: Bool
+    var fill = false
 
     final class PlayerUIView: UIView {
         override class var layerClass: AnyClass { AVPlayerLayer.self }
@@ -225,5 +228,7 @@ struct PlayerLayerView: UIViewRepresentable {
             view.playerLayer.player = player
         }
         view.playerLayer.wantsExtendedDynamicRangeContent = hdr
+        view.playerLayer.videoGravity = fill ? .resizeAspectFill : .resizeAspect
+        view.clipsToBounds = true
     }
 }

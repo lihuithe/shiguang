@@ -26,8 +26,6 @@ struct SwipePager<EndPage: View>: View {
 
     @Environment(AppModel.self) private var model
     @State private var dragY: CGFloat = 0
-    /// nil：還沒判斷方向；true：正在上滑刪除；false：交給橫向翻頁
-    @State private var isVerticalDrag: Bool?
     @State private var flyingID: String?
     @State private var pinchScale: CGFloat = 1
 
@@ -97,41 +95,32 @@ struct SwipePager<EndPage: View>: View {
                 .opacity(1 - abs(phase.value) * 0.35)
         }
         .contentShape(Rectangle())
-        .simultaneousGesture(deleteGesture(item, size: size, pagerFrame: pagerFrame))
-        .simultaneousGesture(pinchGesture(item))
+        // 上滑刪除只掛在目前這張，且只在明確往上拖時才接手，左右滑交給 ScrollView
+        .gesture(deleteGesture(item, size: size, pagerFrame: pagerFrame))
+        .simultaneousGesture(pinchGesture(item), including: isCurrent ? .all : .subviews)
         .onTapGesture(count: 2) { onDoubleTap?(item) }
         .onTapGesture { onTap?(item) }
     }
 
     // MARK: - 上滑刪除
 
-    private func deleteGesture(_ item: MediaItem, size: CGSize, pagerFrame: CGRect) -> some Gesture {
-        DragGesture(minimumDistance: 14)
-            .onChanged { value in
-                guard flyingID == nil, item.id == position else { return }
-                if isVerticalDrag == nil {
-                    let dx = value.translation.width, dy = value.translation.height
-                    isVerticalDrag = dy < 0 && abs(dy) > abs(dx) * 1.2
-                }
-                guard isVerticalDrag == true else { return }
-                let dy = value.translation.height
-                dragY = dy < 0 ? dy : dy * 0.15
+    private func deleteGesture(_ item: MediaItem, size: CGSize, pagerFrame: CGRect) -> UpwardPanGesture {
+        UpwardPanGesture { translationY in
+            guard flyingID == nil, item.id == position else { return }
+            dragY = translationY < 0 ? translationY : translationY * 0.15
+        } onEnded: { translationY, predictedEndY in
+            guard flyingID == nil, item.id == position else { return }
+            let delete = SwipeClassifier.shouldDelete(
+                translationY: translationY,
+                predictedEndY: predictedEndY,
+                height: size.height
+            )
+            if delete {
+                flyAway(item, cardCenterY: pagerFrame.midY)
+            } else {
+                withAnimation(.spring(duration: 0.35, bounce: 0.25)) { dragY = 0 }
             }
-            .onEnded { value in
-                let wasVertical = isVerticalDrag == true
-                isVerticalDrag = nil
-                guard wasVertical, flyingID == nil else { return }
-                let delete = SwipeClassifier.shouldDelete(
-                    translationY: value.translation.height,
-                    predictedEndY: value.predictedEndTranslation.height,
-                    height: size.height
-                )
-                if delete {
-                    flyAway(item, cardCenterY: pagerFrame.midY)
-                } else {
-                    withAnimation(.spring(duration: 0.35, bounce: 0.25)) { dragY = 0 }
-                }
-            }
+        }
     }
 
     /// 照片縮小飛向動態島
