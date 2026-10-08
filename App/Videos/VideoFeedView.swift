@@ -41,6 +41,16 @@ struct VideoFeedView: View {
                 feed
             }
 
+            // ScrollView 會延伸到 Tab 列後面，下一支剛好排在那裡；
+            // 在 Tab 列後方墊一塊純黑底（抖音式），半透明的玻璃 Tab 列就不會透出下一支。
+            VStack(spacing: 0) {
+                Spacer(minLength: 0)
+                Color.black
+                    .frame(height: 0)
+                    .ignoresSafeArea(edges: .bottom)
+            }
+            .allowsHitTesting(false)
+
             if needsSoundPrompt {
                 soundPrompt
                     .transition(.opacity.combined(with: .scale(scale: 0.95)))
