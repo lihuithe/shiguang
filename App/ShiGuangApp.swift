@@ -75,31 +75,31 @@ struct RootView: View {
     }
 }
 
-/// 三個分頁加底部浮動 Tab 列。照片的全螢幕瀏覽由 PhotoHomeView 以 fullScreenCover 呈現，會蓋住 Tab 列。
+/// 系統原生 TabView：用 Xcode 26 編譯、在 iOS 26 上自動呈現液態玻璃 Tab 列。
+/// 各分頁的內容都停在 Tab 列上方（抖音式），Tab 列底下是黑色背景。
+/// 照片的全螢幕瀏覽由 PhotoHomeView 以 fullScreenCover 呈現，會蓋住 Tab 列。
 struct MainTabView: View {
     @Binding var tab: AppTab
     let photos: ReviewModel
     let videos: ReviewModel
 
     var body: some View {
-        ZStack(alignment: .bottom) {
-            Group {
-                switch tab {
-                case .photos:
-                    PhotoHomeView(review: photos)
-                case .videos:
-                    VideoFeedView(review: videos)
-                case .stats:
-                    StatsView {
-                        photos.reload()
-                        videos.reload()
-                    }
+        TabView(selection: $tab) {
+            Tab("照片", systemImage: "photo.on.rectangle", value: AppTab.photos) {
+                PhotoHomeView(review: photos)
+            }
+            Tab("视频", systemImage: "play.rectangle.fill", value: AppTab.videos) {
+                VideoFeedView(review: videos)
+            }
+            Tab("统计", systemImage: "person.fill", value: AppTab.stats) {
+                StatsView {
+                    photos.reload()
+                    videos.reload()
                 }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            FloatingTabBar(selection: $tab)
-                .padding(.bottom, 8)
+        }
+        .onChange(of: tab) {
+            Haptics.tick()
         }
         .background(Color.black.ignoresSafeArea())
     }

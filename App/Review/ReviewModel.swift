@@ -108,14 +108,18 @@ final class ReviewModel {
         if let next = session.next { model.locations.resolve(next) }
     }
 
-    func goForward() {
-        session.goForward()
+    /// 原生分頁滾動停在某一項上時同步位置
+    func move(to id: String) {
+        guard let index = session.visibleItems.firstIndex(where: { $0.id == id }),
+              index != session.currentIndex else { return }
+        session.move(toVisibleIndex: index)
         afterMove()
     }
 
-    func goBack() {
-        guard session.canGoBack else { return }
-        session.goBack()
+    /// 滑到組尾的結束頁：看完一組
+    func reachEnd() {
+        guard !session.isFinished else { return }
+        session.move(toVisibleIndex: session.visibleItems.count)
         afterMove()
     }
 

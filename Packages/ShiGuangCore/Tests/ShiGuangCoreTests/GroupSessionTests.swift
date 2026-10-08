@@ -56,9 +56,20 @@ final class GroupSessionTests: XCTestCase {
         XCTAssertTrue(session.pendingDeletion.isEmpty)
         XCTAssertEqual(session.visibleItems.count, 4)
 
-        session.undo()
-        XCTAssertEqual(session.current?.id, "a0")
+        // 翻頁不進撤銷記錄
         XCTAssertNil(session.undo())
+        XCTAssertEqual(session.current?.id, "a1")
+    }
+
+    func testMoveToVisibleIndex() {
+        var session = GroupSession(items: TestSupport.items(3))
+        session.move(toVisibleIndex: 2)
+        XCTAssertEqual(session.current?.id, "a2")
+        session.move(toVisibleIndex: 99)
+        XCTAssertTrue(session.isFinished)
+        session.move(toVisibleIndex: -3)
+        XCTAssertEqual(session.current?.id, "a0")
+        XCTAssertFalse(session.canUndo)
     }
 
     func testUndoAfterFinishingReturnsToLastItem() {

@@ -10,7 +10,6 @@ public struct GroupSession: Equatable {
     public enum Event: Equatable {
         /// visibleIndex：刪除當下它在可見序列中的位置，撤銷時放回原位
         case deleted(id: String, visibleIndex: Int)
-        case moved(fromIndex: Int)
         case favoriteChanged(id: String, wasFavorite: Bool)
     }
 
@@ -88,17 +87,20 @@ public struct GroupSession: Equatable {
         return item
     }
 
-    /// 下一張；在最後一張時呼叫即看完一組。
+    /// 下一張；在最後一張時呼叫即看完一組。翻頁不進撤銷記錄，撤銷只還原刪除與收藏。
     public mutating func goForward() {
         guard !isFinished else { return }
-        history.append(.moved(fromIndex: currentIndex))
         currentIndex += 1
     }
 
     public mutating func goBack() {
         guard canGoBack else { return }
-        history.append(.moved(fromIndex: currentIndex))
         currentIndex = min(currentIndex, visibleItems.count) - 1
+    }
+
+    /// 直接移到某個位置（原生分頁滾動停下時同步）；等於 visibleItems.count 表示滑到了組尾。
+    public mutating func move(toVisibleIndex index: Int) {
+        currentIndex = min(max(index, 0), visibleItems.count)
     }
 
     /// 收藏按鈕或雙擊：切換收藏。回傳切換後的狀態。
@@ -119,8 +121,6 @@ public struct GroupSession: Equatable {
         case let .deleted(id, visibleIndex):
             markedForDeletion.remove(id)
             currentIndex = visibleIndex
-        case let .moved(fromIndex):
-            currentIndex = fromIndex
         case let .favoriteChanged(id, wasFavorite):
             if wasFavorite { favorites.insert(id) } else { favorites.remove(id) }
         }

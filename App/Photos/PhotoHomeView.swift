@@ -113,8 +113,7 @@ struct PhotoHomeView: View {
             .padding(.leading, 12)
             .padding(.trailing, 6)
             .padding(.vertical, 6)
-            .background(.ultraThinMaterial, in: Capsule())
-            .environment(\.colorScheme, .dark)
+            .glassBackground(Capsule())
         }
     }
 
@@ -129,8 +128,7 @@ struct PhotoHomeView: View {
                 .font(.footnote.weight(.semibold))
         }
         .padding(12)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .environment(\.colorScheme, .dark)
+        .glassBackground(RoundedRectangle(cornerRadius: 14, style: .continuous), interactive: false)
     }
 }
 

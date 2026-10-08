@@ -1,10 +1,10 @@
-// swift-tools-version:5.9
+// swift-tools-version:6.0
 import PackageDescription
 
 let package = Package(
     name: "ShiGuangCore",
     platforms: [
-        .iOS(.v17),
+        .iOS(.v18),
         .macOS(.v13),
     ],
     products: [
@@ -13,5 +13,6 @@ let package = Package(
     targets: [
         .target(name: "ShiGuangCore"),
         .testTarget(name: "ShiGuangCoreTests", dependencies: ["ShiGuangCore"]),
-    ]
+    ],
+    swiftLanguageModes: [.v5]
 )

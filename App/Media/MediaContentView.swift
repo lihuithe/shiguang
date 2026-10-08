@@ -112,7 +112,7 @@ struct ICloudProgressBadge: View {
             .foregroundStyle(.white)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
-            .background(.ultraThinMaterial, in: Capsule())
+            .glassBackground(Capsule(), interactive: false)
             .padding(.bottom, 120)
         }
     }
@@ -126,22 +126,35 @@ struct ThumbnailView: View {
     /// 寬高比，預設正方形
     var aspect: CGFloat = 1
 
-    @State private var image: UIImage?
-
     /// 固定寬高比，圖片填滿裁切
     var body: some View {
         Color(white: 0.15)
             .aspectRatio(aspect, contentMode: .fit)
-            .overlay {
-                if DemoLibrary.isDemoID(item.id) {
-                    DemoCardView(item: item, compact: true)
-                } else if let image {
-                    Image(uiImage: image)
-                        .resizable()
-                        .scaledToFill()
-                }
-            }
+            .overlay { AssetFillImage(item: item, side: side) }
             .clipped()
+    }
+}
+
+/// 填滿外框（裁切）的縮圖，外框大小由呼叫方決定。
+struct AssetFillImage: View {
+    let item: MediaItem
+    /// 請求的最長邊（point）
+    var side: CGFloat = 120
+
+    @State private var image: UIImage?
+
+    var body: some View {
+        ZStack {
+            Color(white: 0.15)
+            if DemoLibrary.isDemoID(item.id) {
+                DemoCardView(item: item, compact: side < 200, embedded: side >= 200)
+            } else if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            }
+        }
+        .clipped()
         .task(id: item.id) {
             guard !DemoLibrary.isDemoID(item.id), let asset = fetchAsset(item.id) else { return }
             let scale = UIScreen.main.scale
@@ -250,7 +263,7 @@ struct MediaBadge: View {
             .foregroundStyle(.white)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
-            .background(.ultraThinMaterial, in: Capsule())
+            .glassBackground(Capsule(), interactive: false)
     }
 }
 

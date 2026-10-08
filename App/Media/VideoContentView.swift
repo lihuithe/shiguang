@@ -3,7 +3,7 @@ import Photos
 import ShiGuangCore
 import SwiftUI
 
-/// 影片：自動循環播放、長按倍速、底部顯示載入與播放進度。
+/// 影片：自動循環播放、輕點暫停 / 播放、長按 2 倍速、底部顯示載入與播放進度。
 struct VideoContentView: View {
     let item: MediaItem
     let isActive: Bool
@@ -23,7 +23,8 @@ struct VideoContentView: View {
     @State private var isMuted = false
     @State private var timeObserver: Any?
     @State private var loopObserver: NSObjectProtocol?
-    @State private var pressTask: Task<Void, Never>?
+    /// 使用者輕點暫停；換到別支影片或重新出現時恢復
+    @State private var isPausedByUser = false
 
     var body: some View {
         ZStack {
@@ -46,7 +47,7 @@ struct VideoContentView: View {
                                 .font(.footnote)
                                 .foregroundStyle(.white)
                                 .padding(8)
-                                .background(.ultraThinMaterial, in: Circle())
+                                .glassBackground(Circle())
                         }
                     }
                     .padding(.top, 110)
@@ -61,7 +62,7 @@ struct VideoContentView: View {
                         .foregroundStyle(.white)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 6)
-                        .background(.ultraThinMaterial, in: Capsule())
+                        .glassBackground(Capsule(), interactive: false)
                         .transition(.opacity)
                 }
 
@@ -72,19 +73,25 @@ struct VideoContentView: View {
                 .padding(.horizontal, showsChrome ? 16 : 0)
                 .padding(.bottom, progressInset)
             }
+
+            if isPausedByUser, isReady {
+                Image(systemName: "play.fill")
+                    .font(.system(size: 64))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .shadow(color: .black.opacity(0.4), radius: 12)
+                    .transition(.scale(scale: 1.3).combined(with: .opacity))
+                    .allowsHitTesting(false)
+            }
         }
         .contentShape(Rectangle())
-        .onLongPressGesture(minimumDuration: 0.3, maximumDistance: 12) {
+        // 輕點暫停 / 播放；按住超過 0.35 秒進入 2 倍速，鬆手恢復
+        .onTapGesture {
+            togglePause()
+        }
+        .onLongPressGesture(minimumDuration: 0.35, maximumDistance: 12) {
+            setFastForward(true)
         } onPressingChanged: { pressing in
-            // onPressingChanged 在手指一按下就觸發，延遲一下才進入倍速，避免輕觸與滑動誤觸
-            pressTask?.cancel()
-            if pressing {
-                pressTask = Task {
-                    try? await Task.sleep(nanoseconds: 300_000_000)
-                    guard !Task.isCancelled else { return }
-                    setFastForward(true)
-                }
-            } else if isFastForwarding {
+            if !pressing, isFastForwarding {
                 setFastForward(false)
             }
         }
@@ -92,6 +99,7 @@ struct VideoContentView: View {
             await load()
         }
         .onChange(of: isActive) { _, active in
+            if active { isPausedByUser = false }
             updatePlayback(active: active)
         }
         .onChange(of: mutedOverride) { _, muted in
@@ -121,10 +129,19 @@ struct VideoContentView: View {
         await MediaLoader.shared.hold(bag)
     }
 
+    private func togglePause() {
+        guard isActive, isReady else { return }
+        Haptics.tick()
+        let isPlaying = player.rate != 0
+        withAnimation(.spring(duration: 0.25)) { isPausedByUser = isPlaying }
+        if isPlaying { player.pause() } else { player.play() }
+    }
+
     private func setFastForward(_ on: Bool) {
         withAnimation(.easeOut(duration: 0.15)) { isFastForwarding = on }
         if on {
             Haptics.tick()
+            isPausedByUser = false
             player.rate = 2.0
         } else {
             updatePlayback(active: isActive)
@@ -132,7 +149,7 @@ struct VideoContentView: View {
     }
 
     private func updatePlayback(active: Bool) {
-        if active && model.settings.videoAutoplay {
+        if active && model.settings.videoAutoplay && !isPausedByUser {
             player.play()
         } else {
             player.pause()
@@ -141,6 +158,7 @@ struct VideoContentView: View {
 
     private func attachObservers(to playerItem: AVPlayerItem) {
         teardown()
+        player.actionAtItemEnd = .none
         let duration = max(item.duration, 0.1)
         timeObserver = player.addPeriodicTimeObserver(
             forInterval: CMTime(seconds: 0.1, preferredTimescale: 600),
@@ -153,8 +171,8 @@ struct VideoContentView: View {
             object: playerItem,
             queue: .main
         ) { _ in
+            // 循環播放：actionAtItemEnd 設為 .none，播完回到開頭繼續（暫停中則停在開頭）
             player.seek(to: .zero)
-            if isActive { player.play() }
         }
     }
 

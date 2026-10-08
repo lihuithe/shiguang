@@ -2,7 +2,7 @@ name: ShiGuang
 options:
   bundleIdPrefix: com.example
   deploymentTarget:
-    iOS: "17.0"
+    iOS: "18.0"
   developmentLanguage: zh-Hans
   createIntermediateGroups: true
 

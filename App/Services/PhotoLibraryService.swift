@@ -128,21 +128,24 @@ final class PhotoLibraryService: NSObject, PHPhotoLibraryChangeObserver {
         return PHAsset.fetchAssets(in: collection, options: nil)
     }
 
-    /// 「回到那天」：某天拍攝的全部照片與影片，按時間排序。
-    func assets(onDayOf date: Date, calendar: Calendar) -> [PHAsset] {
-        let range = DayBucket.range(containing: date, calendar: calendar)
+    /// 「回到那天」時間軸：全部照片 / 影片依拍攝時間由舊到新
+    func timelineFetchResult(filter: TimelineFilter) -> PHFetchResult<PHAsset> {
         let options = PHFetchOptions()
-        options.predicate = NSPredicate(
-            format: "creationDate >= %@ AND creationDate < %@ AND (mediaType == %d OR mediaType == %d)",
-            range.start as NSDate, range.end as NSDate,
-            PHAssetMediaType.image.rawValue, PHAssetMediaType.video.rawValue
-        )
         options.sortDescriptors = [NSSortDescriptor(key: "creationDate", ascending: true)]
-        let result = PHAsset.fetchAssets(with: options)
-        var assets: [PHAsset] = []
-        assets.reserveCapacity(result.count)
-        result.enumerateObjects { asset, _, _ in assets.append(asset) }
-        return assets
+        let image = PHAssetMediaType.image.rawValue
+        let video = PHAssetMediaType.video.rawValue
+        let screenshot = PHAssetMediaSubtype.photoScreenshot.rawValue
+        switch filter {
+        case .all:
+            options.predicate = NSPredicate(format: "mediaType == %d OR mediaType == %d", image, video)
+        case .photos:
+            options.predicate = NSPredicate(format: "mediaType == %d AND (mediaSubtypes & %d) == 0", image, screenshot)
+        case .videos:
+            options.predicate = NSPredicate(format: "mediaType == %d", video)
+        case .screenshots:
+            options.predicate = NSPredicate(format: "mediaType == %d AND (mediaSubtypes & %d) != 0", image, screenshot)
+        }
+        return PHAsset.fetchAssets(with: options)
     }
 
     func asset(withID id: String) -> PHAsset? {

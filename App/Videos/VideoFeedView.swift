@@ -1,26 +1,25 @@
 import ShiGuangCore
 import SwiftUI
 
-/// 視頻分頁（對照原版）：像短視頻一樣上下滑；右側收藏、分享、刪除、撤銷；左下角時間與地點。
-/// 第一次播放前詢問是否要自動播放聲音。
+/// 視頻分頁（參考抖音與原版）：
+/// - 原生分頁上下滑，畫面只佔 Tab 列以上的區域，底部留給系統 Tab 列；
+/// - 輕點暫停 / 播放，長按 2 倍速；
+/// - 右側收藏、分享、刪除、撤銷，左下角時間與地點，最底下一條播放進度；
+/// - 第一次播放前詢問是否要自動播放聲音。
 struct VideoFeedView: View {
     @Bindable var review: ReviewModel
 
     @Environment(AppModel.self) private var model
 
-    @State private var dragY: CGFloat = 0
-    @State private var isAnimating = false
-    @State private var flyAway = false
+    @State private var position: String?
+    @State private var flyingID: String?
     @State private var glow = false
     @State private var soundConfirmed = false
     @State private var showUndoHint = false
     @State private var undoHintTask: Task<Void, Never>?
     @State private var infoItem: MediaItem?
-    @State private var dayAnchor: MediaItem?
+    @State private var timelineAnchor: MediaItem?
     @State private var shareRequest: ShareRequest?
-
-    /// 距離螢幕底部的高度，留給浮動 Tab 列
-    private let tabBarClearance: CGFloat = 96
 
     private var current: MediaItem? { review.session.current }
 
@@ -29,37 +28,46 @@ struct VideoFeedView: View {
     }
 
     private var isPlaybackAllowed: Bool {
-        !needsSoundPrompt && !review.isPresentingPending && infoItem == nil && dayAnchor == nil && shareRequest == nil
+        !needsSoundPrompt && !review.isPresentingPending && infoItem == nil && timelineAnchor == nil && shareRequest == nil
     }
 
     var body: some View {
-        GeometryReader { geo in
-            ZStack {
-                Color.black
+        ZStack {
+            Color.black.ignoresSafeArea()
 
-                if review.hasLoaded, review.session.isEmpty {
-                    EmptyCategoryView(title: "视频") { review.reload() }
-                } else {
-                    pages(size: geo.size)
-                }
-
-                if current != nil {
-                    chrome
-                }
-
-                if needsSoundPrompt {
-                    soundPrompt
-                        .transition(.opacity.combined(with: .scale(scale: 0.95)))
-                }
-
-                IslandGlow(isOn: glow)
+            if review.hasLoaded, review.session.isEmpty {
+                EmptyCategoryView(title: "视频") { review.reload() }
+            } else {
+                feed
             }
+
+            if needsSoundPrompt {
+                soundPrompt
+                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
+            }
+
+            IslandGlow(isOn: glow)
         }
-        .ignoresSafeArea()
         .preferredColorScheme(.dark)
         .onAppear {
             review.loadIfNeeded()
             review.markCurrentViewed()
+            position = current?.id
+        }
+        .onChange(of: position) { _, id in
+            guard let id else { return }
+            if id == pagerEndID {
+                review.reachEnd()
+            } else if id != current?.id {
+                review.move(to: id)
+            }
+        }
+        .onChange(of: current?.id) { _, id in
+            let target = id ?? (review.session.isFinished ? pagerEndID : nil)
+            guard position != target else { return }
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { position = target }
         }
         .onChange(of: review.deleteCount) {
             showUndoHintBriefly()
@@ -70,8 +78,8 @@ struct VideoFeedView: View {
         .sheet(item: $infoItem) { item in
             MediaInfoSheet(item: item) {
                 Task {
-                    try? await Task.sleep(nanoseconds: 400_000_000)
-                    dayAnchor = item
+                    try? await Task.sleep(nanoseconds: 350_000_000)
+                    timelineAnchor = item
                 }
             }
             .environment(model)
@@ -81,194 +89,153 @@ struct VideoFeedView: View {
             ShareSheet(items: request.items)
                 .presentationDetents([.medium, .large])
         }
-        .fullScreenCover(item: $dayAnchor) { anchor in
-            DayView(anchor: anchor)
-                .environment(model)
+        .fullScreenCover(item: $timelineAnchor) { anchor in
+            DayTimelineView(anchor: anchor, sourceFrame: nil) {
+                timelineAnchor = nil
+                review.libraryDidChange()
+            }
+            .environment(model)
         }
     }
 
-    // MARK: - 上下翻頁
+    // MARK: - 信息流
 
-    @ViewBuilder
-    private func pages(size: CGSize) -> some View {
-        ZStack {
-            if let next = review.session.next, dragY < 0 || flyAway {
-                page(next, size: size, isCurrent: false)
-                    .offset(y: flyAway ? 0 : size.height + dragY)
-                    .zIndex(0)
+    private var feed: some View {
+        GeometryReader { geo in
+            ScrollView(.vertical) {
+                LazyVStack(spacing: 0) {
+                    ForEach(review.session.visibleItems) { item in
+                        page(item, size: geo.size, safeTop: geo.safeAreaInsets.top)
+                            .frame(width: geo.size.width, height: geo.size.height + geo.safeAreaInsets.top)
+                            .id(item.id)
+                    }
+                    groupEndPage
+                        .frame(width: geo.size.width, height: geo.size.height + geo.safeAreaInsets.top)
+                        .id(pagerEndID)
+                }
+                .scrollTargetLayout()
             }
-            if let current {
-                page(current, size: size, isCurrent: true)
-                    .scaleEffect(flyAway ? 0.06 : 1)
-                    .opacity(flyAway ? 0 : 1)
-                    .offset(y: dragY)
-                    .zIndex(1)
-            }
-            if let previous = review.session.previous, dragY > 0 {
-                page(previous, size: size, isCurrent: false)
-                    .offset(y: -size.height + dragY)
-                    .zIndex(2)
-            }
+            .scrollTargetBehavior(.paging)
+            .scrollPosition(id: $position)
+            .scrollIndicators(.hidden)
+            .scrollDisabled(needsSoundPrompt || flyingID != nil)
+            // 頂部延伸到狀態列底下，底部停在 Tab 列上方（抖音式）
+            .ignoresSafeArea(edges: .top)
         }
-        .frame(width: size.width, height: size.height)
-        .clipped()
-        .contentShape(Rectangle())
-        .gesture(dragGesture(height: size.height))
     }
 
-    private func page(_ item: MediaItem, size: CGSize, isCurrent: Bool) -> some View {
-        MediaContentView(
-            item: item,
-            isActive: isCurrent && isPlaybackAllowed && !isAnimating,
-            embedded: true,
-            videoMuted: model.settings.videoMuted,
-            videoProgressInset: tabBarClearance - 6
-        )
-        .frame(width: size.width, height: size.height)
+    private func page(_ item: MediaItem, size: CGSize, safeTop: CGFloat) -> some View {
+        let isCurrent = item.id == current?.id
+        let flying = flyingID == item.id
+        return ZStack {
+            MediaContentView(
+                item: item,
+                isActive: isCurrent && isPlaybackAllowed && flyingID == nil,
+                embedded: true,
+                videoMuted: model.settings.videoMuted,
+                videoProgressInset: 0
+            )
+            .scaleEffect(flying ? 0.06 : 1)
+            .offset(y: flying ? 24 - (size.height + safeTop) / 2 : 0)
+            .opacity(flying ? 0 : 1)
+
+            if isCurrent, !flying {
+                overlay(for: item, size: size)
+            }
+        }
         .background(Color.black)
     }
 
-    private func dragGesture(height: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 10)
-            .onChanged { value in
-                guard !isAnimating, !needsSoundPrompt, current != nil else { return }
-                guard abs(value.translation.height) > abs(value.translation.width) else { return }
-                var dy = value.translation.height
-                if dy > 0, !review.session.canGoBack { dy *= 0.25 }
-                dragY = dy
-            }
-            .onEnded { value in
-                guard !isAnimating, current != nil else { return }
-                let turn = SwipeClassifier.pageTurn(
-                    translation: dragY,
-                    predictedEnd: value.predictedEndTranslation.height,
-                    pageLength: height
-                )
-                if turn == .forward {
-                    commit(to: -height) { review.goForward() }
-                } else if turn == .backward, review.session.canGoBack {
-                    commit(to: height) { review.goBack() }
-                } else {
-                    withAnimation(.spring(duration: 0.35, bounce: 0.2)) { dragY = 0 }
-                }
-            }
-    }
-
-    private func commit(to offset: CGFloat, then action: @escaping () -> Void) {
-        isAnimating = true
-        withAnimation(.easeOut(duration: 0.24)) {
-            dragY = offset
-        } completion: {
-            action()
-            resetWithoutAnimation()
-            isAnimating = false
+    private var groupEndPage: some View {
+        VStack(spacing: 10) {
+            Image(systemName: "checkmark.circle")
+                .font(.system(size: 40, weight: .light))
+            Text("这一组看完啦")
+                .font(.headline)
         }
-    }
-
-    private func resetWithoutAnimation() {
-        var transaction = Transaction()
-        transaction.disablesAnimations = true
-        withTransaction(transaction) {
-            dragY = 0
-            flyAway = false
-        }
-    }
-
-    /// 刪除：畫面縮小飛向動態島，下一支接上。
-    private func deleteCurrent(height: CGFloat) {
-        guard current != nil, !isAnimating else { return }
-        isAnimating = true
-        let duration = model.settings.deleteAnimationEnabled ? 0.34 : 0.01
-        withAnimation(.easeIn(duration: duration)) {
-            dragY = 24 - height / 2
-            flyAway = true
-        } completion: {
-            glow = true
-            review.deleteCurrent()
-            resetWithoutAnimation()
-            isAnimating = false
-            Task {
-                try? await Task.sleep(nanoseconds: 260_000_000)
-                glow = false
-            }
-        }
+        .foregroundStyle(.white.opacity(0.7))
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.black)
     }
 
     // MARK: - 介面元件
 
-    private var chrome: some View {
-        GeometryReader { geo in
-            ZStack {
-                // 右上：待刪除數量
-                if !review.session.pendingDeletion.isEmpty {
-                    Button {
-                        review.isPresentingPending = true
-                    } label: {
-                        Label("待删除 \(review.session.pendingDeletion.count)", systemImage: "trash")
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 7)
-                            .background(Color.red.opacity(0.85), in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-                    .padding(.top, geo.safeAreaInsets.top + 8)
-                    .padding(.trailing, 16)
-                }
+    private func overlay(for item: MediaItem, size: CGSize) -> some View {
+        ZStack(alignment: .bottom) {
+            // 底部漸層，讓白色文字在亮畫面上也看得清
+            LinearGradient(colors: [.clear, .black.opacity(0.45)], startPoint: .center, endPoint: .bottom)
+                .frame(height: 220)
+                .frame(maxHeight: .infinity, alignment: .bottom)
+                .allowsHitTesting(false)
 
-                // 右側：收藏、分享、刪除、撤銷
-                VStack(spacing: 16) {
-                    if let current {
-                        let isFavorite = review.session.isFavorite(current.id)
-                        CircleIconButton(systemName: isFavorite ? "heart.fill" : "heart", size: 44, tint: isFavorite ? .pink : .white) {
-                            review.toggleFavorite(current)
-                        }
-                        CircleIconButton(systemName: "square.and.arrow.up", size: 44) {
-                            Task { shareRequest = await ShareService.request(for: current) }
-                        }
-                        CircleIconButton(systemName: "trash", size: 44) {
-                            deleteCurrent(height: geo.size.height)
-                        }
+            HStack(alignment: .bottom) {
+                Button {
+                    infoItem = item
+                } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        DatePlaceText(item: item, alignment: .leading)
+                        Image(systemName: "chevron.up")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(.white.opacity(0.8))
                     }
-                    CircleIconButton(systemName: "arrow.uturn.backward", size: 44) {
-                        undoHintTask?.cancel()
-                        showUndoHint = false
-                        withAnimation(.spring(duration: 0.3)) { review.undo() }
-                    }
-                    .disabled(!review.session.canUndo)
-                    .opacity(review.session.canUndo ? 1 : 0.35)
-                    .overlay(alignment: .trailing) {
-                        if showUndoHint {
-                            UndoHintPill()
-                                .fixedSize()
-                                .offset(x: -56)
-                                .transition(.opacity)
-                        }
-                    }
+                    .shadow(color: .black.opacity(0.6), radius: 4)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                .padding(.trailing, 14)
-                .padding(.bottom, tabBarClearance + 70)
+                .buttonStyle(.plain)
 
-                // 左下：時間與地點，點擊看詳細資訊
-                if let current {
-                    Button {
-                        infoItem = current
-                    } label: {
-                        HStack(alignment: .firstTextBaseline, spacing: 4) {
-                            DatePlaceText(item: current, alignment: .leading)
-                            Image(systemName: "chevron.up")
-                                .font(.caption2.weight(.bold))
-                                .foregroundStyle(.white.opacity(0.8))
-                        }
-                        .shadow(color: .black.opacity(0.6), radius: 4)
-                    }
-                    .buttonStyle(.plain)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-                    .padding(.leading, 14)
-                    .padding(.bottom, tabBarClearance + 6)
+                Spacer()
+
+                actionColumn(for: item, height: size.height)
+            }
+            .padding(.horizontal, 14)
+            .padding(.bottom, 14)
+        }
+    }
+
+    private func actionColumn(for item: MediaItem, height: CGFloat) -> some View {
+        let isFavorite = review.session.isFavorite(item.id)
+        return VStack(spacing: 16) {
+            CircleIconButton(systemName: isFavorite ? "heart.fill" : "heart", size: 46, tint: isFavorite ? .pink : .white) {
+                review.toggleFavorite(item)
+            }
+            CircleIconButton(systemName: "square.and.arrow.up", size: 46) {
+                Task { shareRequest = await ShareService.request(for: item) }
+            }
+            CircleIconButton(systemName: "trash", size: 46) {
+                delete(item)
+            }
+            CircleIconButton(systemName: "arrow.uturn.backward", size: 46) {
+                undoHintTask?.cancel()
+                showUndoHint = false
+                review.undo()
+            }
+            .disabled(!review.session.canUndo)
+            .opacity(review.session.canUndo ? 1 : 0.35)
+            .overlay(alignment: .trailing) {
+                if showUndoHint {
+                    UndoHintPill()
+                        .fixedSize()
+                        .offset(x: -58)
+                        .transition(.opacity)
                 }
+            }
+        }
+    }
+
+    /// 刪除：畫面縮小飛向動態島，下一支接上；看完一組時統一確認。
+    private func delete(_ item: MediaItem) {
+        guard flyingID == nil else { return }
+        let duration = model.settings.deleteAnimationEnabled ? 0.32 : 0.01
+        withAnimation(.easeIn(duration: duration)) {
+            flyingID = item.id
+        } completion: {
+            glow = true
+            review.deleteCurrent()
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { flyingID = nil }
+            Task {
+                try? await Task.sleep(nanoseconds: 260_000_000)
+                glow = false
             }
         }
     }
@@ -289,7 +256,7 @@ struct VideoFeedView: View {
                     Text("继续")
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 10)
-                        .background(Color.white.opacity(0.14), in: Capsule())
+                        .glassBackground(Capsule())
                 }
                 Button {
                     withAnimation(.easeOut(duration: 0.2)) {
@@ -300,7 +267,7 @@ struct VideoFeedView: View {
                     Text("不再提示")
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 10)
-                        .background(Color.white.opacity(0.14), in: Capsule())
+                        .glassBackground(Capsule())
                 }
             }
             .font(.subheadline.weight(.semibold))
@@ -309,8 +276,7 @@ struct VideoFeedView: View {
         .foregroundStyle(.white)
         .padding(16)
         .frame(maxWidth: 300)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .environment(\.colorScheme, .dark)
+        .glassBackground(RoundedRectangle(cornerRadius: 22, style: .continuous), interactive: false)
         .shadow(color: .black.opacity(0.4), radius: 20)
     }
 

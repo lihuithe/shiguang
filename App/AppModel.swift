@@ -99,15 +99,24 @@ final class AppModel {
         return library.source(for: category)
     }
 
-    func dayItems(for date: Date) -> [MediaItem] {
+    /// 「回到那天」時間軸：以 anchor 的拍攝時間為中心，前後各取 radius 項（依時間排序）。
+    func timeline(around anchor: MediaItem, filter: TimelineFilter, radius: Int = 200) -> (items: [MediaItem], anchorIndex: Int) {
+        let target = anchor.creationDate ?? Date()
+        let all: [MediaItem]
+        let center: Int
         if settings.demoMode {
-            let range = DayBucket.range(containing: date, calendar: calendar)
-            return DayBucket.sortedChronologically(demoItems.filter { item in
-                guard let d = item.creationDate else { return false }
-                return range.contains(d) && d < range.end
-            })
+            let sorted = DayBucket.sortedChronologically(demoItems.filter(filter.contains))
+            center = TimelineSearch.lowerBound(count: sorted.count, target: target) { sorted[$0].creationDate }
+            all = Array(sorted[TimelineSearch.window(around: center, radius: radius, count: sorted.count)])
+        } else {
+            let result = library.timelineFetchResult(filter: filter)
+            center = TimelineSearch.lowerBound(count: result.count, target: target) { result.object(at: $0).creationDate }
+            let range = TimelineSearch.window(around: center, radius: radius, count: result.count)
+            all = range.map { MediaItem(asset: result.object(at: $0)) }
         }
-        return library.assets(onDayOf: date, calendar: calendar).map { MediaItem(asset: $0) }
+        let anchorIndex = all.firstIndex(where: { $0.id == anchor.id })
+            ?? min(TimelineSearch.lowerBound(count: all.count, target: target) { all[$0].creationDate }, max(all.count - 1, 0))
+        return (all, anchorIndex)
     }
 
     func removeDemoItems(ids: Set<String>) {

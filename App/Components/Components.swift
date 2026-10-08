@@ -13,8 +13,8 @@ struct CircleIconButton: View {
                 .font(.system(size: size * 0.4, weight: .semibold))
                 .foregroundStyle(tint)
                 .frame(width: size, height: size)
-                .background(.ultraThinMaterial, in: Circle())
-                .environment(\.colorScheme, .dark)
+                .contentShape(Circle())
+                .glassBackground(Circle())
         }
         .buttonStyle(.plain)
     }
@@ -68,52 +68,23 @@ struct EmptyCategoryView: View {
     }
 }
 
-/// 底部浮動 Tab 列：照片 / 視頻 / 統計
+/// 三個分頁：照片 / 視頻 / 統計
 enum AppTab: Hashable {
     case photos
     case videos
     case stats
 }
 
-struct FloatingTabBar: View {
-    @Binding var selection: AppTab
-
-    private let tabs: [(AppTab, String, String)] = [
-        (.photos, "照片", "photo.on.rectangle"),
-        (.videos, "视频", "play.rectangle.fill"),
-        (.stats, "统计", "person.fill"),
-    ]
-
-    var body: some View {
-        HStack(spacing: 4) {
-            ForEach(tabs, id: \.0) { tab, title, icon in
-                Button {
-                    guard selection != tab else { return }
-                    Haptics.tick()
-                    selection = tab
-                } label: {
-                    VStack(spacing: 2) {
-                        Image(systemName: icon)
-                            .font(.system(size: 17, weight: .semibold))
-                        Text(title)
-                            .font(.system(size: 10, weight: .medium))
-                    }
-                    .foregroundStyle(selection == tab ? Color.accentColor : .white.opacity(0.75))
-                    .frame(width: 64, height: 46)
-                    .background {
-                        if selection == tab {
-                            Capsule().fill(.white.opacity(0.12))
-                        }
-                    }
-                }
-                .buttonStyle(.plain)
-            }
+extension View {
+    /// iOS 26 使用原生液態玻璃，舊系統退回毛玻璃材質
+    @ViewBuilder
+    func glassBackground<S: Shape>(_ shape: S, interactive: Bool = true) -> some View {
+        if #available(iOS 26.0, *) {
+            self.glassEffect(interactive ? .regular.interactive() : .regular, in: shape)
+        } else {
+            self.background(.ultraThinMaterial, in: shape)
+                .environment(\.colorScheme, .dark)
         }
-        .padding(5)
-        .background(.ultraThinMaterial, in: Capsule())
-        .overlay(Capsule().strokeBorder(.white.opacity(0.08)))
-        .environment(\.colorScheme, .dark)
-        .shadow(color: .black.opacity(0.35), radius: 12, y: 4)
     }
 }
 

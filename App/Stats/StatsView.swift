@@ -25,7 +25,7 @@ struct StatsView: View {
                 }
                 .padding(.horizontal, 16)
                 .padding(.top, 4)
-                .padding(.bottom, 120)
+                .padding(.bottom, 24)
             }
             .background(Color.black.ignoresSafeArea())
             .navigationTitle("使用统计")
@@ -38,13 +38,6 @@ struct StatsView: View {
                             .foregroundStyle(.white)
                     }
                 }
-            }
-            .confirmationDialog("重置浏览记录", isPresented: $showResetOptions, titleVisibility: .visible) {
-                Button("重置「\(model.settings.category.title)」") { reset(model.settings.category) }
-                Button("重置视频") { reset(.videos) }
-                Button("重置全部", role: .destructive) { reset(.all) }
-            } message: {
-                Text("重置后，看过的内容会重新出现在随机回顾里。")
             }
         }
         .preferredColorScheme(.dark)
@@ -121,6 +114,14 @@ struct StatsView: View {
             .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
         .buttonStyle(.plain)
+        // 掛在這一行上，iPad 與 iOS 26 的彈出選單會指向這裡
+        .confirmationDialog("重置浏览记录", isPresented: $showResetOptions, titleVisibility: .visible) {
+            Button("重置「\(model.settings.category.title)」") { reset(model.settings.category) }
+            Button("重置视频") { reset(.videos) }
+            Button("重置全部", role: .destructive) { reset(.all) }
+        } message: {
+            Text("重置后，看过的内容会重新出现在随机回顾里。")
+        }
     }
 
     @ViewBuilder
