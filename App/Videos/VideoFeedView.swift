@@ -2,7 +2,7 @@ import ShiGuangCore
 import SwiftUI
 
 /// 視頻分頁（參考抖音與原版）：
-/// - 原生分頁上下滑，畫面只佔 Tab 列以上的區域，底部留給系統 Tab 列；
+/// - 上下滑翻頁，畫面固定佔「螢幕頂部到 Tab 列上緣」，一次只顯示一支；
 /// - 輕點暫停 / 播放，長按 2 倍速；
 /// - 右側收藏、分享、刪除、撤銷，左下角時間與地點，最底下一條播放進度；
 /// - 第一次播放前詢問是否要自動播放聲音。
@@ -11,7 +11,10 @@ struct VideoFeedView: View {
 
     @Environment(AppModel.self) private var model
 
-    @State private var position: String?
+    /// 手指拖動的位移；停止時為 0，畫面上只有目前這支
+    @State private var dragY: CGFloat = 0
+    @State private var isVerticalDrag: Bool?
+    @State private var isPaging = false
     @State private var flyingID: String?
     @State private var glow = false
     @State private var soundConfirmed = false
@@ -62,22 +65,6 @@ struct VideoFeedView: View {
         .onAppear {
             review.loadIfNeeded()
             review.markCurrentViewed()
-            position = current?.id
-        }
-        .onChange(of: position) { _, id in
-            guard let id else { return }
-            if id == pagerEndID {
-                review.reachEnd()
-            } else if id != current?.id {
-                review.move(to: id)
-            }
-        }
-        .onChange(of: current?.id) { _, id in
-            let target = id ?? (review.session.isFinished ? pagerEndID : nil)
-            guard position != target else { return }
-            var transaction = Transaction()
-            transaction.disablesAnimations = true
-            withTransaction(transaction) { position = target }
         }
         .onChange(of: review.deleteCount) {
             showUndoHintBriefly()
@@ -110,32 +97,115 @@ struct VideoFeedView: View {
 
     // MARK: - 信息流
 
-    private var feed: some View {
-        ScrollView(.vertical) {
-            LazyVStack(spacing: 0) {
-                ForEach(review.session.visibleItems) { item in
-                    // 每頁的大小由系統依 ScrollView 實際可見範圍決定，一頁剛好一支，不會露出下一支
-                    GeometryReader { geo in
-                        page(item, size: geo.size)
-                    }
-                    .containerRelativeFrame([.horizontal, .vertical])
-                    .id(item.id)
-                }
-                groupEndPage
-                    .containerRelativeFrame([.horizontal, .vertical])
-                    .id(pagerEndID)
-            }
-            .scrollTargetLayout()
+    /// 畫面上只排三頁：上一支（畫面上方外）、目前這支、下一支（畫面下方外）。
+    /// 每頁大小與位置都明確指定並裁切，停止時不可能露出別支；翻頁後三頁的身分不變，
+    /// 下一支早已載入好，直接成為目前這支。
+    private struct FeedPage: Identifiable {
+        let id: String
+        let item: MediaItem?
+        /// -1 上一支、0 目前、1 下一支
+        let slot: Int
+    }
+
+    private var pages: [FeedPage] {
+        let session = review.session
+        var pages: [FeedPage] = []
+        if let previous = session.previous {
+            pages.append(FeedPage(id: previous.id, item: previous, slot: -1))
         }
-        .scrollTargetBehavior(.paging)
-        .scrollPosition(id: $position)
-        .scrollIndicators(.hidden)
-        .scrollDisabled(needsSoundPrompt || flyingID != nil)
+        if let current = session.current {
+            pages.append(FeedPage(id: current.id, item: current, slot: 0))
+            if let next = session.next {
+                pages.append(FeedPage(id: next.id, item: next, slot: 1))
+            } else {
+                pages.append(FeedPage(id: pagerEndID, item: nil, slot: 1))
+            }
+        } else if session.isFinished {
+            pages.append(FeedPage(id: pagerEndID, item: nil, slot: 0))
+        }
+        return pages
+    }
+
+    private var feed: some View {
+        GeometryReader { geo in
+            let size = geo.size
+            ZStack {
+                ForEach(pages) { entry in
+                    Group {
+                        if let item = entry.item {
+                            page(item, size: size)
+                        } else {
+                            groupEndPage
+                        }
+                    }
+                    .frame(width: size.width, height: size.height)
+                    .offset(y: CGFloat(entry.slot) * size.height + dragY)
+                }
+            }
+            .frame(width: size.width, height: size.height)
+            .clipped()
+            .contentShape(Rectangle())
+            .gesture(pagingGesture(height: size.height))
+        }
         // 頂部延伸到狀態列底下，底部停在 Tab 列上方（抖音式）
         .ignoresSafeArea(edges: .top)
-        // SwiftUI 的 ScrollView 會把內容畫到 Tab 列後面（只把 Tab 列當成內容邊距），
-        // 下一支剛好排在那裡，會從半透明的玻璃 Tab 列透出來。按版面範圍裁切，Tab 列後面不再繪製任何內容。
-        .clipShape(Rectangle())
+    }
+
+    private func pagingGesture(height: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 12)
+            .onChanged { value in
+                guard !isPaging, flyingID == nil, !needsSoundPrompt else { return }
+                if isVerticalDrag == nil {
+                    isVerticalDrag = abs(value.translation.height) > abs(value.translation.width)
+                }
+                guard isVerticalDrag == true else { return }
+                var dy = value.translation.height
+                // 第一支往下拉、或已在組尾還往上推時，加阻尼
+                if dy > 0, !review.session.canGoBack { dy *= 0.3 }
+                if dy < 0, current == nil { dy *= 0.3 }
+                dragY = dy
+            }
+            .onEnded { value in
+                let wasVertical = isVerticalDrag == true
+                isVerticalDrag = nil
+                guard wasVertical, !isPaging, flyingID == nil else { return }
+                let turn = SwipeClassifier.pageTurn(
+                    translation: dragY,
+                    predictedEnd: value.predictedEndTranslation.height,
+                    pageLength: height
+                )
+                if turn == .forward, current != nil {
+                    turnPage(forward: true, height: height)
+                } else if turn == .backward, review.session.canGoBack {
+                    turnPage(forward: false, height: height)
+                } else {
+                    withAnimation(.spring(duration: 0.35, bounce: 0.15)) { dragY = 0 }
+                }
+            }
+    }
+
+    /// 整列滑到下一支（或上一支）的位置，再無動畫地切換目前位置並歸零位移。
+    private func turnPage(forward: Bool, height: CGFloat) {
+        isPaging = true
+        withAnimation(.easeOut(duration: 0.24)) {
+            dragY = forward ? -height : height
+        } completion: {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                if forward {
+                    if let next = review.session.next {
+                        review.move(to: next.id)
+                    } else {
+                        review.reachEnd()
+                    }
+                } else if let previous = review.session.previous {
+                    review.move(to: previous.id)
+                }
+                dragY = 0
+            }
+            isPaging = false
+        }
     }
 
     /// 抖音式比例適配：影片比例接近畫面時鋪滿（少量裁切），否則完整顯示並置中
